@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: inferloop-pg
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: inferloop
+      POSTGRES_PASSWORD: inferloop
+      POSTGRES_DB: inferloop
+    volumes:
+      - inferloop-pg-data:/var/lib/postgresql/data
+
+volumes:
+  inferloop-pg-data:
