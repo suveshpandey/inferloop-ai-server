@@ -37,11 +37,20 @@ inferloop-server/
 │   ├── auth/
 │   │   ├── password.ts        # hashPassword / verifyPassword (argon2)
 │   │   ├── jwt.ts             # signAccessToken / verifyAccessToken (jose)
-│   │   └── refresh.ts         # issue / find / revoke refresh tokens
+│   │   ├── refresh.ts         # issue / find / revoke refresh tokens
+│   │   └── middleware.ts      # requireAuth (Bearer token gate)
+│   ├── llm/
+│   │   └── ollama.ts          # chatJSON — Ollama HTTP wrapper
+│   ├── agents/
+│   │   ├── schemas.ts         # Zod schemas for agent outputs
+│   │   └── analyzer.ts        # Analyzer agent (code → findings)
+│   ├── scripts/
+│   │   └── test-analyzer.ts   # one-off script to test Analyzer locally
 │   └── api/
 │       └── routes/
 │           ├── health.ts      # GET /health  → liveness + DB ping
-│           └── auth.ts        # /auth/signup, /login, /refresh, /logout
+│           ├── auth.ts        # /auth/signup, /login, /refresh, /logout, /me
+│           └── analyze.ts     # POST /api/analyze (Analyzer agent)
 └── .env                       # local secrets (gitignored)
 ```
 
@@ -160,6 +169,43 @@ Notes:
 - Refresh tokens are long-lived (30 days), DB-backed. Stored as SHA-256 hashes — the raw token is never persisted.
 - Login/signup return identical generic errors on bad credentials to prevent email enumeration.
 
+### Analysis
+
+| Method | Path | Auth? | Body | Returns |
+|---|---|---|---|---|
+| POST | `/api/analyze` | ✅ Bearer | `{ code, language }` | `200 { findings[], summary }` |
+
+`code` is capped at 20,000 chars; `language` at 50. Response shape:
+
+```json
+{
+  "findings": [
+    {
+      "severity": "low" | "medium" | "high" | "critical",
+      "category": "bug" | "smell" | "complexity" | "security" | "performance" | "style",
+      "title": "short title",
+      "description": "explanation",
+      "line": 12
+    }
+  ],
+  "summary": "overall takeaway"
+}
+```
+
+Errors:
+- `400` — invalid request body (Zod issues returned in `details`).
+- `401` — missing or invalid bearer token.
+- `502` — model unreachable, timed out, or returned an unparseable response.
+
+### How analysis works
+
+1. Route validates the request body with Zod.
+2. Calls the **Analyzer agent** (`src/agents/analyzer.ts`).
+3. Agent builds a strict system prompt + user prompt, sends to **Ollama** (`src/llm/ollama.ts`) with `format: "json"` so the model is constrained to valid JSON output.
+4. Response is validated against the `AnalyzerOutput` Zod schema (`src/agents/schemas.ts`). Bad shape → 502.
+
+Each agent in the pipeline (currently just Analyzer; Critic / Improver / Evaluator coming) will follow this same pattern: schema → system prompt → `chatJSON` → validate → return.
+
 ---
 
 ## Auth model (how it works)
@@ -187,8 +233,8 @@ You can use any of:
 
 - ✅ **Phase 0** — Server + DB + health check
 - ✅ **Phase 1** — Auth: signup / login / refresh / logout / me + `requireAuth` middleware
-- 🟡 **Phase 2** — Ollama client + Analyzer agent — *next*
-- ⏳ **Phase 3** — Critic / Improver / Evaluator agents
+- ✅ **Phase 2** — Ollama client + Analyzer agent + `POST /api/analyze`
+- 🟡 **Phase 3** — Critic / Improver / Evaluator agents — *next*
 - ⏳ **Phase 4** — Orchestrator + SSE streaming
 - ⏳ **Phase 5** — Frontend integration
 
