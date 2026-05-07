@@ -43,14 +43,20 @@ inferloop-server/
 │   │   └── ollama.ts          # chatJSON — Ollama HTTP wrapper
 │   ├── agents/
 │   │   ├── schemas.ts         # Zod schemas for agent outputs
-│   │   └── analyzer.ts        # Analyzer agent (code → findings)
+│   │   ├── analyzer.ts        # Analyzer agent (code → findings)
+│   │   ├── critic.ts          # Critic agent (findings → reviewed findings)
+│   │   └── improver.ts        # Improver agent (code + reviewed → improved code + change notes)
 │   ├── scripts/
-│   │   └── test-analyzer.ts   # one-off script to test Analyzer locally
+│   │   ├── test-analyzer.ts   # one-off script to test Analyzer locally
+│   │   ├── test-critic.ts     # one-off script to test Analyzer → Critic locally
+│   │   └── test-improver.ts   # one-off script to test Analyzer → Critic → Improver locally
 │   └── api/
 │       └── routes/
 │           ├── health.ts      # GET /health  → liveness + DB ping
 │           ├── auth.ts        # /auth/signup, /login, /refresh, /logout, /me
-│           └── analyze.ts     # POST /api/analyze (Analyzer agent)
+│           ├── analyze.ts     # POST /api/analyze  (Analyzer agent)
+│           ├── critique.ts    # POST /api/critique (Critic agent)
+│           └── improve.ts     # POST /api/improve  (Improver agent)
 └── .env                       # local secrets (gitignored)
 ```
 
@@ -174,6 +180,8 @@ Notes:
 | Method | Path | Auth? | Body | Returns |
 |---|---|---|---|---|
 | POST | `/api/analyze` | ✅ Bearer | `{ code, language }` | `200 { findings[], summary }` |
+| POST | `/api/critique` | ✅ Bearer | `{ code, language, findings: { findings[], summary } }` | `200 { reviewedFindings[], summary }` |
+| POST | `/api/improve` | ✅ Bearer | `{ code, language, reviewed: { reviewedFindings[], summary } }` | `200 { improvedCode, changeNotes[], summary }` |
 
 `code` is capped at 20,000 chars; `language` at 50. Response shape:
 
@@ -197,14 +205,36 @@ Errors:
 - `401` — missing or invalid bearer token.
 - `502` — model unreachable, timed out, or returned an unparseable response.
 
-### How analysis works
+`/api/critique` response shape:
+
+```json
+{
+  "reviewedFindings": [
+    {
+      "decision": "keep" | "drop" | "modify",
+      "original": { ...AnalyzerFinding... },
+      "revised":  { ...AnalyzerFinding... },   // only when decision = "modify"
+      "reason": "why this decision"
+    }
+  ],
+  "summary": "overall takeaway about review quality"
+}
+```
+
+### How the agents work
 
 1. Route validates the request body with Zod.
-2. Calls the **Analyzer agent** (`src/agents/analyzer.ts`).
+2. Calls the agent (`src/agents/<name>.ts`).
 3. Agent builds a strict system prompt + user prompt, sends to **Ollama** (`src/llm/ollama.ts`) with `format: "json"` so the model is constrained to valid JSON output.
-4. Response is validated against the `AnalyzerOutput` Zod schema (`src/agents/schemas.ts`). Bad shape → 502.
+4. Response is validated against the agent's Zod schema (`src/agents/schemas.ts`). Bad shape → 502.
 
-Each agent in the pipeline (currently just Analyzer; Critic / Improver / Evaluator coming) will follow this same pattern: schema → system prompt → `chatJSON` → validate → return.
+Pipeline so far:
+- **Analyzer** (`code` → `findings`)
+- **Critic** (`code + findings` → `reviewedFindings` with keep/drop/modify decisions)
+- **Improver** (`code + reviewedFindings` → `improvedCode + changeNotes`)
+- _Evaluator coming next_
+
+Every agent follows the same pattern: schema → system prompt → `chatJSON` → validate → return.
 
 ---
 
@@ -234,7 +264,7 @@ You can use any of:
 - ✅ **Phase 0** — Server + DB + health check
 - ✅ **Phase 1** — Auth: signup / login / refresh / logout / me + `requireAuth` middleware
 - ✅ **Phase 2** — Ollama client + Analyzer agent + `POST /api/analyze`
-- 🟡 **Phase 3** — Critic / Improver / Evaluator agents — *next*
+- 🟡 **Phase 3** — Critic ✅ / Improver ✅ / Evaluator 🟡 agents
 - ⏳ **Phase 4** — Orchestrator + SSE streaming
 - ⏳ **Phase 5** — Frontend integration
 

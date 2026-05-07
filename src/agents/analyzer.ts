@@ -30,5 +30,10 @@ function buildUserPrompt(code: string, language: string): string {
 
 export async function analyze(code: string, language: string): Promise<AnalyzerOutputT> {
     const raw = await chatJSON<unknown>(SYSTEM_PROMPT, buildUserPrompt(code, language));
-    return AnalyzerOutput.parse(raw);
+    const parsed = AnalyzerOutput.safeParse(raw);
+    if (!parsed.success) {
+        console.error('Analyzer raw response:', JSON.stringify(raw, null, 2));
+        throw parsed.error;
+    }
+    return parsed.data;
 }

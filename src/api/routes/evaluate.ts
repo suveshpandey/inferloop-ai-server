@@ -1,0 +1,36 @@
+import { Router, Request, Response } from 'express';
+import { z } from 'zod';
+import { requireAuth } from '../../auth/middleware.js';
+import { evaluate } from '../../agents/evaluator.js';
+import { CriticOutput } from '../../agents/schemas.js';
+
+export const evaluateRouter = Router();
+
+const EvaluateRequest = z.object({
+    originalCode: z.string().min(1).max(20_000),
+    improvedCode: z.string().min(1).max(40_000),
+    language: z.string().min(1).max(50),
+    reviewed: CriticOutput,
+});
+
+evaluateRouter.post('/evaluate', requireAuth, async (req: Request, res: Response) => {
+    const parsed = EvaluateRequest.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({
+            error: 'Invalid request body',
+            details: parsed.error.issues,
+        });
+    }
+
+    const { originalCode, improvedCode, language, reviewed } = parsed.data;
+
+    try {
+        const result = await evaluate(originalCode, improvedCode, language, reviewed);
+        return res.status(200).json(result);
+    } catch (err) {
+        console.error('evaluate failed:', err);
+        return res.status(502).json({
+            error: 'Evaluation failed. The model returned an invalid response or is unavailable.',
+        });
+    }
+});
