@@ -70,3 +70,12 @@ export const EvaluatorOutput = z.object({
     unaddressedFindings: z.array(AnalyzerFinding).max(15).optional(),
 });
 export type EvaluatorOutputT = z.infer<typeof EvaluatorOutput>;
+
+
+export const ReviewResult = z.object({
+    findings:   AnalyzerOutput,
+    reviewed:   CriticOutput,
+    improved:   ImproverOutput,
+    evaluation: EvaluatorOutput
+});
+export type ReviewResultT = z.infer<typeof ReviewResult>;

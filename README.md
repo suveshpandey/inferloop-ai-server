@@ -45,18 +45,24 @@ inferloop-server/
 │   │   ├── schemas.ts         # Zod schemas for agent outputs
 │   │   ├── analyzer.ts        # Analyzer agent (code → findings)
 │   │   ├── critic.ts          # Critic agent (findings → reviewed findings)
-│   │   └── improver.ts        # Improver agent (code + reviewed → improved code + change notes)
+│   │   ├── improver.ts        # Improver agent (code + reviewed → improved code + change notes)
+│   │   └── evaluator.ts       # Evaluator agent (original + improved + reviewed → scores + verdict)
+│   ├── orchestrator/
+│   │   └── pipeline.ts        # review(code, language) — runs all 4 agents in sequence
 │   ├── scripts/
-│   │   ├── test-analyzer.ts   # one-off script to test Analyzer locally
-│   │   ├── test-critic.ts     # one-off script to test Analyzer → Critic locally
-│   │   └── test-improver.ts   # one-off script to test Analyzer → Critic → Improver locally
+│   │   ├── test-analyzer.ts   # one-off: Analyzer
+│   │   ├── test-critic.ts     # one-off: Analyzer → Critic
+│   │   ├── test-improver.ts   # one-off: Analyzer → Critic → Improver
+│   │   └── test-evaluator.ts  # one-off: full Analyzer → Critic → Improver → Evaluator chain
 │   └── api/
 │       └── routes/
 │           ├── health.ts      # GET /health  → liveness + DB ping
 │           ├── auth.ts        # /auth/signup, /login, /refresh, /logout, /me
 │           ├── analyze.ts     # POST /api/analyze  (Analyzer agent)
 │           ├── critique.ts    # POST /api/critique (Critic agent)
-│           └── improve.ts     # POST /api/improve  (Improver agent)
+│           ├── improve.ts     # POST /api/improve  (Improver agent)
+│           ├── evaluate.ts    # POST /api/evaluate (Evaluator agent)
+│           └── review.ts      # POST /api/review   (full orchestrated pipeline)
 └── .env                       # local secrets (gitignored)
 ```
 
@@ -182,6 +188,8 @@ Notes:
 | POST | `/api/analyze` | ✅ Bearer | `{ code, language }` | `200 { findings[], summary }` |
 | POST | `/api/critique` | ✅ Bearer | `{ code, language, findings: { findings[], summary } }` | `200 { reviewedFindings[], summary }` |
 | POST | `/api/improve` | ✅ Bearer | `{ code, language, reviewed: { reviewedFindings[], summary } }` | `200 { improvedCode, changeNotes[], summary }` |
+| POST | `/api/evaluate` | ✅ Bearer | `{ originalCode, improvedCode, language, reviewed }` | `200 { verdict, scores, rationale, unaddressedFindings? }` |
+| POST | `/api/review` | ✅ Bearer | `{ code, language }` | `200 { findings, reviewed, improved, evaluation }` |
 
 `code` is capped at 20,000 chars; `language` at 50. Response shape:
 
@@ -228,11 +236,13 @@ Errors:
 3. Agent builds a strict system prompt + user prompt, sends to **Ollama** (`src/llm/ollama.ts`) with `format: "json"` so the model is constrained to valid JSON output.
 4. Response is validated against the agent's Zod schema (`src/agents/schemas.ts`). Bad shape → 502.
 
-Pipeline so far:
+Pipeline:
 - **Analyzer** (`code` → `findings`)
 - **Critic** (`code + findings` → `reviewedFindings` with keep/drop/modify decisions)
 - **Improver** (`code + reviewedFindings` → `improvedCode + changeNotes`)
-- _Evaluator coming next_
+- **Evaluator** (`originalCode + improvedCode + reviewedFindings` → `scores + verdict`)
+
+The full chain is exposed as a single endpoint: **`POST /api/review`**. The orchestrator (`src/orchestrator/pipeline.ts`) runs all four agents in sequence and returns one bundle. Today it blocks until everything finishes (~30–90s on a local 7B model). SSE streaming is the next step.
 
 Every agent follows the same pattern: schema → system prompt → `chatJSON` → validate → return.
 
@@ -264,8 +274,8 @@ You can use any of:
 - ✅ **Phase 0** — Server + DB + health check
 - ✅ **Phase 1** — Auth: signup / login / refresh / logout / me + `requireAuth` middleware
 - ✅ **Phase 2** — Ollama client + Analyzer agent + `POST /api/analyze`
-- 🟡 **Phase 3** — Critic ✅ / Improver ✅ / Evaluator 🟡 agents
-- ⏳ **Phase 4** — Orchestrator + SSE streaming
+- ✅ **Phase 3** — Critic / Improver / Evaluator agents (all four agents shipped)
+- 🟡 **Phase 4** — Orchestrator ✅ / SSE streaming 🟡
 - ⏳ **Phase 5** — Frontend integration
 
 See `InferLoop_AI_PRD.md` in the repo root for the full spec.
