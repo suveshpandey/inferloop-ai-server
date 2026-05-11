@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import cors from 'cors';
 import { env } from './config/env.js';
 import { prisma } from './db/client.js';
 
@@ -26,8 +27,13 @@ async function start() {
     }
 
     const app = express();
+    app.use(cors({
+        origin: env.CORS_ORIGIN,
+        credentials: true,
+    }));
     app.use(express.json());
 
+    
     app.use('/health', healthRouter);
     app.use('/auth', authRouter);
     app.use('/api', analyzeRouter);
