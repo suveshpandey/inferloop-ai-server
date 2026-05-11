@@ -62,7 +62,8 @@ inferloop-server/
 │           ├── critique.ts    # POST /api/critique (Critic agent)
 │           ├── improve.ts     # POST /api/improve  (Improver agent)
 │           ├── evaluate.ts    # POST /api/evaluate (Evaluator agent)
-│           └── review.ts      # POST /api/review   (full orchestrated pipeline)
+│           ├── review.ts      # POST /api/review   (full orchestrated pipeline, blocking)
+│           └── review-stream.ts # POST /api/review/stream (SSE — per-stage progress)
 └── .env                       # local secrets (gitignored)
 ```
 
@@ -190,6 +191,7 @@ Notes:
 | POST | `/api/improve` | ✅ Bearer | `{ code, language, reviewed: { reviewedFindings[], summary } }` | `200 { improvedCode, changeNotes[], summary }` |
 | POST | `/api/evaluate` | ✅ Bearer | `{ originalCode, improvedCode, language, reviewed }` | `200 { verdict, scores, rationale, unaddressedFindings? }` |
 | POST | `/api/review` | ✅ Bearer | `{ code, language }` | `200 { findings, reviewed, improved, evaluation }` |
+| POST | `/api/review/stream` | ✅ Bearer | `{ code, language }` | `200 text/event-stream` (see below) |
 
 `code` is capped at 20,000 chars; `language` at 50. Response shape:
 
@@ -242,7 +244,38 @@ Pipeline:
 - **Improver** (`code + reviewedFindings` → `improvedCode + changeNotes`)
 - **Evaluator** (`originalCode + improvedCode + reviewedFindings` → `scores + verdict`)
 
-The full chain is exposed as a single endpoint: **`POST /api/review`**. The orchestrator (`src/orchestrator/pipeline.ts`) runs all four agents in sequence and returns one bundle. Today it blocks until everything finishes (~30–90s on a local 7B model). SSE streaming is the next step.
+The full chain is exposed as two endpoints:
+
+- **`POST /api/review`** — blocking. Returns the full bundle once all four agents finish (~30–90s on a local 7B model).
+- **`POST /api/review/stream`** — Server-Sent Events. Emits a `stage_start` and `stage_complete` event for each agent, then a final `done` event with the full bundle.
+
+### Streaming wire format
+
+`Content-Type: text/event-stream`. Each event is two text lines plus a blank line:
+
+```
+event: stage_start
+data: {"type":"stage_start","stage":"analyzer"}
+
+event: stage_complete
+data: {"type":"stage_complete","stage":"analyzer","result":{...}}
+
+... (repeats for critic, improver, evaluator)
+
+event: done
+data: {"findings":{...},"reviewed":{...},"improved":{...},"evaluation":{...}}
+```
+
+On failure the server emits a single `event: error` with an error message, then closes the stream.
+
+Test with curl (use `-N` to disable buffering):
+
+```bash
+curl -N -X POST http://localhost:3001/api/review/stream \
+  -H "Authorization: Bearer <ACCESS_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"code":"function add(a,b){return a-b}","language":"javascript"}'
+```
 
 Every agent follows the same pattern: schema → system prompt → `chatJSON` → validate → return.
 
@@ -275,7 +308,7 @@ You can use any of:
 - ✅ **Phase 1** — Auth: signup / login / refresh / logout / me + `requireAuth` middleware
 - ✅ **Phase 2** — Ollama client + Analyzer agent + `POST /api/analyze`
 - ✅ **Phase 3** — Critic / Improver / Evaluator agents (all four agents shipped)
-- 🟡 **Phase 4** — Orchestrator ✅ / SSE streaming 🟡
+- ✅ **Phase 4** — Orchestrator + SSE streaming (`/api/review/stream`)
 - ⏳ **Phase 5** — Frontend integration
 
 See `InferLoop_AI_PRD.md` in the repo root for the full spec.
