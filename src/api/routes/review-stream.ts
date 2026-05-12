@@ -1,13 +1,17 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../../auth/middleware.js';
-import { review, type OnProgress } from '../../orchestrator/pipeline.js';
+import { reviewLoop, type OnProgress } from '../../orchestrator/pipeline.js';
 
 export const reviewStreamRouter = Router();
 
 const ReviewRequest = z.object({
-    code: z.string().min(1).max(20_000),
-    language: z.string().min(1).max(50),
+    code:          z.string().min(1).max(20_000),
+    language:      z.string().min(1).max(50),
+    // 1 means "single pass" (back-compat for old clients); 5 is the upper bound.
+    // Default to 3 — a sensible middle ground that catches most easy wins
+    // without burning model budget on diminishing returns.
+    maxIterations: z.number().int().min(1).max(5).optional().default(3),
 });
 
 reviewStreamRouter.post('/review/stream', requireAuth, async (req: Request, res: Response) => {
@@ -19,7 +23,7 @@ reviewStreamRouter.post('/review/stream', requireAuth, async (req: Request, res:
         });
     }
 
-    const { code, language } = parsed.data;
+    const { code, language, maxIterations } = parsed.data;
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -41,7 +45,7 @@ reviewStreamRouter.post('/review/stream', requireAuth, async (req: Request, res:
     };
 
     try {
-        const result = await review(code, language, onProgress);
+        const result = await reviewLoop(code, language, maxIterations, onProgress);
         if (!clientGone) {
             send('done', result);
             res.end();
@@ -50,6 +54,7 @@ reviewStreamRouter.post('/review/stream', requireAuth, async (req: Request, res:
         console.error('review stream failed:', err);
         if (!clientGone) {
             send('error', {
+                type: 'error',
                 error: 'Review failed. One of the pipeline agents returned an invalid response or is unavailable.',
             });
             res.end();
