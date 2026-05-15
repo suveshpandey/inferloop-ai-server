@@ -1,6 +1,6 @@
 # InferLoop Server
 
-Backend for **InferLoop AI** — a multi-agent code-analysis system. Built with Node.js, Express 5, TypeScript, Prisma, and PostgreSQL. Auth uses Argon2 (password hashing) + JOSE JWTs (access tokens) + DB-backed refresh tokens.
+Backend for **InferLoop AI** — a multi-agent code-review system that runs Analyzer → Critic → Improver → Evaluator in an iterative loop until the code converges (or the evaluator regresses). Built with Node.js, Express 5, TypeScript, Prisma, and PostgreSQL. Auth uses Argon2 (password hashing) + JOSE JWTs (access tokens) + DB-backed refresh tokens.
 
 ---
 
@@ -14,8 +14,10 @@ Backend for **InferLoop AI** — a multi-agent code-analysis system. Built with 
 | Dev runner | tsx (watch mode, no separate build) |
 | Database | PostgreSQL 16 (via Docker) |
 | ORM | Prisma 6 |
+| LLM | Ollama (`qwen2.5-coder:7b` by default) |
 | Password hashing | argon2 (argon2id) |
 | JWT lib | jose |
+| Validation | Zod |
 | Package manager | pnpm |
 
 ---
@@ -26,14 +28,15 @@ Backend for **InferLoop AI** — a multi-agent code-analysis system. Built with 
 inferloop-server/
 ├── docker-compose.yml         # Postgres container
 ├── prisma/
-│   ├── schema.prisma          # DB schema (User, RefreshToken)
+│   ├── schema.prisma          # DB schema (User, RefreshToken, Run, Iteration)
 │   └── migrations/            # Generated migration history
 ├── src/
 │   ├── server.ts              # App bootstrap, mounts routers
 │   ├── config/
 │   │   └── env.ts             # Loads + exposes env vars
 │   ├── db/
-│   │   └── client.ts          # Singleton PrismaClient
+│   │   ├── client.ts          # Singleton PrismaClient
+│   │   └── runs.ts            # Run/Iteration repo (save, list, get, delete)
 │   ├── auth/
 │   │   ├── password.ts        # hashPassword / verifyPassword (argon2)
 │   │   ├── jwt.ts             # signAccessToken / verifyAccessToken (jose)
@@ -48,22 +51,23 @@ inferloop-server/
 │   │   ├── improver.ts        # Improver agent (code + reviewed → improved code + change notes)
 │   │   └── evaluator.ts       # Evaluator agent (original + improved + reviewed → scores + verdict)
 │   ├── orchestrator/
-│   │   └── pipeline.ts        # review(code, language) — runs all 4 agents in sequence
+│   │   └── pipeline.ts        # reviewLoop — iterative 4-agent loop with termination logic
 │   ├── scripts/
-│   │   ├── test-analyzer.ts   # one-off: Analyzer
-│   │   ├── test-critic.ts     # one-off: Analyzer → Critic
-│   │   ├── test-improver.ts   # one-off: Analyzer → Critic → Improver
-│   │   └── test-evaluator.ts  # one-off: full Analyzer → Critic → Improver → Evaluator chain
+│   │   ├── test-analyzer.ts   # one-off agent tests
+│   │   ├── test-critic.ts
+│   │   ├── test-improver.ts
+│   │   └── test-evaluator.ts
 │   └── api/
 │       └── routes/
-│           ├── health.ts      # GET /health  → liveness + DB ping
-│           ├── auth.ts        # /auth/signup, /login, /refresh, /logout, /me
-│           ├── analyze.ts     # POST /api/analyze  (Analyzer agent)
-│           ├── critique.ts    # POST /api/critique (Critic agent)
-│           ├── improve.ts     # POST /api/improve  (Improver agent)
-│           ├── evaluate.ts    # POST /api/evaluate (Evaluator agent)
-│           ├── review.ts      # POST /api/review   (full orchestrated pipeline, blocking)
-│           └── review-stream.ts # POST /api/review/stream (SSE — per-stage progress)
+│           ├── health.ts          # GET /health
+│           ├── auth.ts            # /auth/signup, /login, /refresh, /logout, /me, /change-password
+│           ├── analyze.ts         # POST /api/analyze
+│           ├── critique.ts        # POST /api/critique
+│           ├── improve.ts         # POST /api/improve
+│           ├── evaluate.ts        # POST /api/evaluate
+│           ├── review.ts          # POST /api/review (single-pass, blocking)
+│           ├── review-stream.ts   # POST /api/review/stream (SSE, iterative loop + persistence)
+│           └── runs.ts            # GET /api/runs, GET /api/runs/:id, DELETE /api/runs/:id
 └── .env                       # local secrets (gitignored)
 ```
 
@@ -74,7 +78,11 @@ inferloop-server/
 - Node.js 20+
 - pnpm 10+
 - Docker Desktop running
-- (optional) Ollama with `qwen2.5-coder:7b` pulled — needed once we wire up agents in Phase 2
+- [Ollama](https://ollama.com) with `qwen2.5-coder:7b` pulled (or set `OLLAMA_MODEL` to whatever you have)
+
+```bash
+ollama pull qwen2.5-coder:7b
+```
 
 ---
 
@@ -97,6 +105,11 @@ JWT_ACCESS_SECRET=dev-access-secret-change-me-please-32chars-min
 JWT_ACCESS_TTL=15m
 
 REFRESH_TOKEN_TTL_DAYS=30
+
+OLLAMA_URL=http://localhost:11434
+OLLAMA_MODEL=qwen2.5-coder:7b
+
+CORS_ORIGIN=http://localhost:3000
 ```
 
 Start Postgres + run migrations:
@@ -137,6 +150,21 @@ Postgres runs in Docker with a named volume `inferloop-pg-data` so data persists
 - Port: `5432`
 - User / pass / db: `inferloop` / `inferloop` / `inferloop`
 
+### Schema
+
+```
+User ────< RefreshToken
+  │
+  └────< Run ────< Iteration
+```
+
+- **User** — auth identity (email, argon2 hash, optional username).
+- **RefreshToken** — long-lived session tokens, stored as SHA-256 hashes.
+- **Run** — one row per completed review submission (input code, language, final code, termination reason, final score).
+- **Iteration** — one row per loop pass inside a Run. Holds the four agent outputs (`analyzerOutput`, `criticOutput`, `improverOutput`, `evaluatorOutput`) as JSON columns plus a denormalized `overallScore` for cheap querying.
+
+Both `RefreshToken` and `Run` cascade-delete with the User. `Iteration` cascades with its `Run`.
+
 To inspect data:
 
 ```bash
@@ -160,11 +188,6 @@ pnpm prisma migrate dev
 |---|---|---|
 | GET | `/health` | Liveness + DB reachability probe |
 
-```bash
-curl http://localhost:3001/health
-# → { "status": "ok", "db": "reachable" }
-```
-
 ### Auth
 
 | Method | Path | Auth? | Body | Returns |
@@ -172,101 +195,90 @@ curl http://localhost:3001/health
 | POST | `/auth/signup` | — | `{ email, password, username? }` | `201 { email, accessToken, refreshToken }` |
 | POST | `/auth/login` | — | `{ email, password }` | `200 { email, accessToken, refreshToken }` |
 | POST | `/auth/refresh` | — | `{ refreshToken }` | `200 { accessToken }` |
-| POST | `/auth/logout` | — | `{ refreshToken }` | `204` (no body) |
-| GET | `/auth/me` | ✅ Bearer | — | `200 { id, email, username, createdAt }` |
-
-Protected routes expect: `Authorization: Bearer <accessToken>`. Use the `requireAuth` middleware (`src/auth/middleware.ts`) on any new route that needs a logged-in user — it attaches `req.user = { id, email }`.
+| POST | `/auth/logout` | — | `{ refreshToken }` | `204` |
+| GET | `/auth/me` | ✅ | — | `200 { id, email, username, createdAt }` |
+| POST | `/auth/change-password` | ✅ | `{ currentPassword, newPassword }` | `204` |
 
 Notes:
-- Access tokens are short-lived JWTs (15 min). Sent as `Authorization: Bearer <token>` on protected requests.
-- Refresh tokens are long-lived (30 days), DB-backed. Stored as SHA-256 hashes — the raw token is never persisted.
-- Login/signup return identical generic errors on bad credentials to prevent email enumeration.
+- Access tokens: short-lived JWTs (15 min), sent as `Authorization: Bearer <token>`.
+- Refresh tokens: 30-day random tokens, DB-stored as SHA-256 hashes only.
+- `/change-password` enforces ≥8 chars and that the new password differs from the current one.
 
-### Analysis
+### Individual agents
 
 | Method | Path | Auth? | Body | Returns |
 |---|---|---|---|---|
-| POST | `/api/analyze` | ✅ Bearer | `{ code, language }` | `200 { findings[], summary }` |
-| POST | `/api/critique` | ✅ Bearer | `{ code, language, findings: { findings[], summary } }` | `200 { reviewedFindings[], summary }` |
-| POST | `/api/improve` | ✅ Bearer | `{ code, language, reviewed: { reviewedFindings[], summary } }` | `200 { improvedCode, changeNotes[], summary }` |
-| POST | `/api/evaluate` | ✅ Bearer | `{ originalCode, improvedCode, language, reviewed }` | `200 { verdict, scores, rationale, unaddressedFindings? }` |
-| POST | `/api/review` | ✅ Bearer | `{ code, language }` | `200 { findings, reviewed, improved, evaluation }` |
-| POST | `/api/review/stream` | ✅ Bearer | `{ code, language }` | `200 text/event-stream` (see below) |
+| POST | `/api/analyze` | ✅ | `{ code, language }` | `{ findings[], summary }` |
+| POST | `/api/critique` | ✅ | `{ code, language, findings }` | `{ reviewedFindings[], summary }` |
+| POST | `/api/improve` | ✅ | `{ code, language, reviewed }` | `{ improvedCode, changeNotes[], summary }` |
+| POST | `/api/evaluate` | ✅ | `{ originalCode, improvedCode, language, reviewed }` | `{ verdict, scores, rationale, unaddressedFindings? }` |
 
-`code` is capped at 20,000 chars; `language` at 50. Response shape:
+### Review (full pipeline)
 
-```json
-{
-  "findings": [
-    {
-      "severity": "low" | "medium" | "high" | "critical",
-      "category": "bug" | "smell" | "complexity" | "security" | "performance" | "style",
-      "title": "short title",
-      "description": "explanation",
-      "line": 12
-    }
-  ],
-  "summary": "overall takeaway"
-}
-```
+| Method | Path | Auth? | Body | Returns |
+|---|---|---|---|---|
+| POST | `/api/review` | ✅ | `{ code, language }` | `{ findings, reviewed, improved, evaluation }` (single pass, blocking) |
+| POST | `/api/review/stream` | ✅ | `{ code, language, maxIterations? }` | `text/event-stream` (iterative loop, see below) |
 
-Errors:
-- `400` — invalid request body (Zod issues returned in `details`).
-- `401` — missing or invalid bearer token.
-- `502` — model unreachable, timed out, or returned an unparseable response.
+`code` is capped at 20,000 chars; `maxIterations` is clamped to `[1, 5]` (default `3`).
 
-`/api/critique` response shape:
+### History
 
-```json
-{
-  "reviewedFindings": [
-    {
-      "decision": "keep" | "drop" | "modify",
-      "original": { ...AnalyzerFinding... },
-      "revised":  { ...AnalyzerFinding... },   // only when decision = "modify"
-      "reason": "why this decision"
-    }
-  ],
-  "summary": "overall takeaway about review quality"
-}
-```
+| Method | Path | Auth? | Returns |
+|---|---|---|---|
+| GET | `/api/runs` | ✅ | `{ runs: RunSummary[] }` — last 30 runs for the caller |
+| GET | `/api/runs/:id` | ✅ | `{ run: RunDetail }` — full payload with ordered iterations |
+| DELETE | `/api/runs/:id` | ✅ | `204` (cascade deletes iterations) |
 
-### How the agents work
+Persistence is automatic: when `POST /api/review/stream` finishes, the server writes the `Run` + all its `Iteration` rows in a single Prisma transaction *before* sending the final `done` event. If the DB write fails, the user still receives their review result; the error is logged and the run is simply missing from history.
+
+---
+
+## How the pipeline works
 
 1. Route validates the request body with Zod.
-2. Calls the agent (`src/agents/<name>.ts`).
-3. Agent builds a strict system prompt + user prompt, sends to **Ollama** (`src/llm/ollama.ts`) with `format: "json"` so the model is constrained to valid JSON output.
-4. Response is validated against the agent's Zod schema (`src/agents/schemas.ts`). Bad shape → 502.
-
-Pipeline:
-- **Analyzer** (`code` → `findings`)
-- **Critic** (`code + findings` → `reviewedFindings` with keep/drop/modify decisions)
-- **Improver** (`code + reviewedFindings` → `improvedCode + changeNotes`)
-- **Evaluator** (`originalCode + improvedCode + reviewedFindings` → `scores + verdict`)
-
-The full chain is exposed as two endpoints:
-
-- **`POST /api/review`** — blocking. Returns the full bundle once all four agents finish (~30–90s on a local 7B model).
-- **`POST /api/review/stream`** — Server-Sent Events. Emits a `stage_start` and `stage_complete` event for each agent, then a final `done` event with the full bundle.
+2. `reviewLoop(code, language, maxIterations, onProgress)` runs up to `maxIterations` passes through `reviewOnce`.
+3. Each pass calls Analyzer → Critic → Improver → Evaluator. Outputs are validated against `src/agents/schemas.ts`.
+4. The improver's output becomes the input for the next iteration.
+5. The loop terminates when one of these fires (in priority order):
+   - **`no-findings`** — analyzer returned `findings: []`.
+   - **`regressed`** — evaluator verdict is `regressed` (improver made things worse → roll back to prior input).
+   - **`converged`** — evaluator verdict is `unchanged` (no more improvements possible).
+   - **`max-iterations`** — hit the cap.
+6. `finalCode` is the last iteration's `improvedCode` for `converged`/`max-iterations`; for `regressed`/`no-findings` it's the prior iteration's input (skip the regression/no-op).
 
 ### Streaming wire format
 
-`Content-Type: text/event-stream`. Each event is two text lines plus a blank line:
+`Content-Type: text/event-stream`. Each event is two lines plus a blank line:
 
 ```
+event: loop_start
+data: {"type":"loop_start","maxIterations":3}
+
+event: iteration_start
+data: {"type":"iteration_start","iteration":1}
+
 event: stage_start
-data: {"type":"stage_start","stage":"analyzer"}
+data: {"type":"stage_start","iteration":1,"stage":"analyzer"}
 
 event: stage_complete
-data: {"type":"stage_complete","stage":"analyzer","result":{...}}
+data: {"type":"stage_complete","iteration":1,"stage":"analyzer","result":{...}}
 
-... (repeats for critic, improver, evaluator)
+... critic, improver, evaluator ...
+
+event: iteration_complete
+data: {"type":"iteration_complete","iteration":1,"result":{...}}
+
+... (iterations 2..N) ...
+
+event: loop_complete
+data: {"type":"loop_complete","result":{"iterations":[...],"finalCode":"...","terminationReason":"converged"}}
 
 event: done
-data: {"findings":{...},"reviewed":{...},"improved":{...},"evaluation":{...}}
+data: {"type":"done","result":{...},"runId":"clxyz..."}
 ```
 
-On failure the server emits a single `event: error` with an error message, then closes the stream.
+`done` carries the persisted `runId` (or `null` if the save failed) so the client can deep-link to `/history/[id]`. On error the server emits `event: error` with a message, then closes the stream.
 
 Test with curl (use `-N` to disable buffering):
 
@@ -274,10 +286,8 @@ Test with curl (use `-N` to disable buffering):
 curl -N -X POST http://localhost:3001/api/review/stream \
   -H "Authorization: Bearer <ACCESS_TOKEN>" \
   -H "Content-Type: application/json" \
-  -d '{"code":"function add(a,b){return a-b}","language":"javascript"}'
+  -d '{"code":"function add(a,b){return a-b}","language":"javascript","maxIterations":3}'
 ```
-
-Every agent follows the same pattern: schema → system prompt → `chatJSON` → validate → return.
 
 ---
 
@@ -285,30 +295,23 @@ Every agent follows the same pattern: schema → system prompt → `chatJSON` �
 
 1. **Signup / login** → server returns `accessToken` (JWT) + `refreshToken` (random 48 bytes).
 2. Client sends `accessToken` on every API request. Server verifies signature only (no DB hit).
-3. When the access token expires (15 min), client calls `/auth/refresh` with the refresh token to get a new access token. Refresh token itself is reused.
-4. **Logout** → client calls `/auth/logout` with the refresh token; server marks it revoked in DB.
+3. When the access token expires (15 min), client calls `/auth/refresh` to get a new one. The refresh token itself is reused.
+4. **Logout** → client calls `/auth/logout`; server marks the refresh token revoked.
 
-### Why two tokens?
 Access tokens are stateless (fast, can't be revoked). Refresh tokens are stateful (slower, *can* be revoked). Combined, you get fast per-request auth + the ability to log out.
-
----
-
-## Testing the API
-
-You can use any of:
-- **[Hoppscotch](https://hoppscotch.io)** — web-based, no install
-- **VS Code REST Client** extension — write `.http` files, click "Send"
-- **curl** — see examples above
 
 ---
 
 ## Roadmap
 
 - ✅ **Phase 0** — Server + DB + health check
-- ✅ **Phase 1** — Auth: signup / login / refresh / logout / me + `requireAuth` middleware
-- ✅ **Phase 2** — Ollama client + Analyzer agent + `POST /api/analyze`
-- ✅ **Phase 3** — Critic / Improver / Evaluator agents (all four agents shipped)
-- ✅ **Phase 4** — Orchestrator + SSE streaming (`/api/review/stream`)
-- ⏳ **Phase 5** — Frontend integration
+- ✅ **Phase 1** — Auth (signup / login / refresh / logout / me / change-password)
+- ✅ **Phase 2** — Ollama client + Analyzer agent
+- ✅ **Phase 3** — Critic / Improver / Evaluator agents
+- ✅ **Phase 4** — Orchestrator (single-pass) + per-stage SSE streaming
+- ✅ **Phase 5** — Iterative loop (`reviewLoop`) with convergence / regression / no-findings termination
+- ✅ **Phase 6** — History persistence (`Run` + `Iteration`) + `/api/runs` CRUD
+- ⏳ **Phase 7** — Test-grounded review (run code + tests in a sandbox; evaluator scores on real pass/fail)
+- ⏳ **Phase 8** — Multi-file context (import-graph aware, 1-hop)
 
 See `InferLoop_AI_PRD.md` in the repo root for the full spec.
