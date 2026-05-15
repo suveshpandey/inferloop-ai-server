@@ -16,7 +16,46 @@ model User {
   createdAt       DateTime  @default(now())
 
   refreshTokens   RefreshToken[]
+  runs            Run[]
 
+}
+
+model Run {
+  id                String      @id @default(cuid())
+  userId            String
+  title             String
+  language          String
+  code              String      // original input the user submitted
+  finalCode         String      // surfaced as the "improved" result (per pipeline rules)
+  maxIterations     Int
+  iterationsRun    Int
+  terminationReason String      // 'converged' | 'regressed' | 'no-findings' | 'max-iterations'
+  finalScore        Int?        // last iteration's evaluator.scores.overall (null if no iterations)
+  createdAt         DateTime    @default(now())
+  completedAt       DateTime
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  iterations  Iteration[]
+
+  @@index([userId, createdAt])
+}
+
+model Iteration {
+  id              String   @id @default(cuid())
+  runId           String
+  iterationIndex  Int      // 1-based
+  inputCode       String   // code fed into this iteration
+  analyzerOutput  Json
+  criticOutput    Json
+  improverOutput  Json
+  evaluatorOutput Json
+  overallScore    Int      // denormalized from evaluatorOutput.scores.overall for cheap querying
+  createdAt       DateTime @default(now())
+
+  run  Run  @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, iterationIndex])
+  @@index([runId])
 }
 
 model RefreshToken {

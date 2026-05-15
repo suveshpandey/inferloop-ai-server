@@ -12,6 +12,7 @@ import { improveRouter } from './api/routes/improve.js';
 import { evaluateRouter } from './api/routes/evaluate.js';
 import { reviewRouter } from './api/routes/review.js';
 import { reviewStreamRouter } from './api/routes/review-stream.js';
+import { runsRouter } from './api/routes/runs.js';
 
 const GREEN = '\x1b[32m';
 const RED = '\x1b[31m';
@@ -42,6 +43,7 @@ async function start() {
     app.use('/api', evaluateRouter);
     app.use('/api', reviewRouter);
     app.use('/api', reviewStreamRouter);
+    app.use('/api', runsRouter);
 
     app.listen(env.PORT, () => {
         console.log(`${GREEN}✓ Server is running on port ${env.PORT}${RESET}`);

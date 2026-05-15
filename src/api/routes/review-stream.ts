@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../../auth/middleware.js';
 import { reviewLoop, type OnProgress } from '../../orchestrator/pipeline.js';
+import { saveCompletedRun } from '../../db/runs.js';
 
 export const reviewStreamRouter = Router();
 
@@ -46,8 +47,31 @@ reviewStreamRouter.post('/review/stream', requireAuth, async (req: Request, res:
 
     try {
         const result = await reviewLoop(code, language, maxIterations, onProgress);
+
+        // Persist the finished run before signalling done so the sidebar's
+        // Recents list sees it on the next fetch. We don't fail the request
+        // if the DB write throws — the user already got their review; log
+        // and move on. `runId` is included in the `done` event when the save
+        // succeeds so the client can deep-link to /history/[id].
+        let runId: string | null = null;
+        try {
+            const saved = await saveCompletedRun({
+                userId: req.user!.id,
+                code,
+                language,
+                maxIterations,
+                loopResult: result,
+            });
+            runId = saved.id;
+        } catch (saveErr) {
+            console.error('saveCompletedRun failed:', saveErr);
+        }
+
         if (!clientGone) {
-            send('done', result);
+            // Include the discriminator inline — the client's StreamEvent
+            // union keys off `type`, and the parser doesn't inject the SSE
+            // event name into the data payload.
+            send('done', { type: 'done', result, runId });
             res.end();
         }
     } catch (err) {
