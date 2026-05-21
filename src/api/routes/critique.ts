@@ -9,6 +9,7 @@ export const critiqueRouter = Router();
 const CritiqueRequest = z.object({
     code: z.string().min(1).max(20_000),
     language: z.string().min(1).max(50),
+    problemStatement: z.string().min(1).max(20_000),
     findings: AnalyzerOutput,
 });
 
@@ -21,10 +22,10 @@ critiqueRouter.post('/critique', requireAuth, async (req: Request, res: Response
         });
     }
 
-    const { code, language, findings } = parsed.data;
+    const { code, language, problemStatement, findings } = parsed.data;
 
     try {
-        const result = await critique(code, language, findings);
+        const result = await critique(code, language, problemStatement, findings);
         return res.status(200).json(result);
     } catch (err) {
         console.error('critique failed:', err);

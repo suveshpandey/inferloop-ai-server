@@ -4,29 +4,40 @@ import { critique } from '../agents/critic.js';
 import { improve } from '../agents/improver.js';
 import { evaluate } from '../agents/evaluator.js';
 
+const problemStatement = `Given an array a of n integers and a target s, find any pair of distinct indices (i, j) such that a[i] + a[j] = s. Return the pair, or report that no such pair exists.
+
+Constraints:
+  1 <= n <= 10^5
+  -10^9 <= a[i] <= 10^9
+  -10^9 <= s <= 10^9
+  Time limit: 1 second
+  Memory limit: 256 MB`;
+
 const code = `
-async function getUser(id) {
-  const res = await fetch('/api/users/' + id);
-  const data = res.json();
-  return data.user;
-}
+def two_sum(a, s):
+    n = len(a)
+    for i in range(n):
+        for j in range(i + 1, n):
+            if a[i] + a[j] == s:
+                return (i, j)
+    return None
 `;
 
 async function main() {
     console.log('--- Step 1: Analyzer ---');
-    const findings = await analyze(code, 'javascript');
+    const findings = await analyze(code, 'python', problemStatement);
     console.log(JSON.stringify(findings, null, 2));
 
     console.log('\n--- Step 2: Critic ---');
-    const reviewed = await critique(code, 'javascript', findings);
+    const reviewed = await critique(code, 'python', problemStatement, findings);
     console.log(JSON.stringify(reviewed, null, 2));
 
     console.log('\n--- Step 3: Improver ---');
-    const improved = await improve(code, 'javascript', reviewed);
+    const improved = await improve(code, 'python', problemStatement, reviewed);
     console.log(JSON.stringify(improved, null, 2));
 
     console.log('\n--- Step 4: Evaluator ---');
-    const evaluation = await evaluate(code, improved.improvedCode, 'javascript', reviewed);
+    const evaluation = await evaluate(code, improved.improvedCode, 'python', problemStatement, reviewed);
     console.log(JSON.stringify(evaluation, null, 2));
 }
 

@@ -25,6 +25,10 @@ model Run {
   userId            String
   title             String
   language          String
+  // The CP problem statement the user is solving. Nullable so legacy
+  // pre-pivot runs (which were generic-review without a problem) still load.
+  // New submissions are required to provide one (enforced at the API layer).
+  problemStatement  String?
   code              String      // original input the user submitted
   finalCode         String      // surfaced as the "improved" result (per pipeline rules)
   maxIterations     Int

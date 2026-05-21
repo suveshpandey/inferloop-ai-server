@@ -7,18 +7,29 @@ import type { LoopResultT } from '../orchestrator/pipeline.js';
 
 // ─────────────────────────── Title heuristic ───────────────────────────────
 //
-// Sidebar Recents need a short, human-readable label. We don't ask the user
-// to name their run — we derive it from the input. First non-empty,
-// non-comment-looking line, trimmed to 60 chars, with the language prefixed.
-// Falls back to "<language> review" if nothing usable is found.
-function deriveTitle(code: string, language: string): string {
-    const firstLine = code
+// Sidebar Recents need a short, human-readable label. For CP submissions the
+// problem statement is a much better title source than the code's first line
+// (which is usually `class Solution:` or `#include <bits/stdc++.h>`). We use
+// the first non-empty line of the problem statement, fall back to the code's
+// first non-comment line, then finally to "<language> review".
+function deriveTitle(code: string, language: string, problemStatement: string | null): string {
+    const fromProblem = problemStatement
+        ?.split('\n')
+        .map((l) => l.trim())
+        .find((l) => l.length > 0);
+
+    if (fromProblem) {
+        const trimmed = fromProblem.length > 60 ? fromProblem.slice(0, 57) + '…' : fromProblem;
+        return `${language} · ${trimmed}`;
+    }
+
+    const fromCode = code
         .split('\n')
         .map((l) => l.trim())
         .find((l) => l.length > 0 && !/^(\/\/|#|\/\*|\*)/.test(l));
 
-    if (!firstLine) return `${language} review`;
-    const trimmed = firstLine.length > 60 ? firstLine.slice(0, 57) + '…' : firstLine;
+    if (!fromCode) return `${language} review`;
+    const trimmed = fromCode.length > 60 ? fromCode.slice(0, 57) + '…' : fromCode;
     return `${language} · ${trimmed}`;
 }
 
@@ -28,13 +39,14 @@ function deriveTitle(code: string, language: string): string {
 // inserts the Run + all its Iterations atomically — a half-saved run on
 // crash is worse than no save at all.
 export async function saveCompletedRun(params: {
-    userId:        string;
-    code:          string;
-    language:      string;
-    maxIterations: number;
-    loopResult:    LoopResultT;
+    userId:           string;
+    code:             string;
+    language:         string;
+    problemStatement: string;
+    maxIterations:    number;
+    loopResult:       LoopResultT;
 }) {
-    const { userId, code, language, maxIterations, loopResult } = params;
+    const { userId, code, language, problemStatement, maxIterations, loopResult } = params;
     const { iterations, finalCode, terminationReason } = loopResult;
 
     const lastIter   = iterations[iterations.length - 1];
@@ -43,8 +55,9 @@ export async function saveCompletedRun(params: {
     return prisma.run.create({
         data: {
             userId,
-            title:             deriveTitle(code, language),
+            title:             deriveTitle(code, language, problemStatement),
             language,
+            problemStatement,
             code,
             finalCode,
             maxIterations,

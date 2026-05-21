@@ -10,6 +10,7 @@ const EvaluateRequest = z.object({
     originalCode: z.string().min(1).max(20_000),
     improvedCode: z.string().min(1).max(40_000),
     language: z.string().min(1).max(50),
+    problemStatement: z.string().min(1).max(20_000),
     reviewed: CriticOutput,
 });
 
@@ -22,10 +23,10 @@ evaluateRouter.post('/evaluate', requireAuth, async (req: Request, res: Response
         });
     }
 
-    const { originalCode, improvedCode, language, reviewed } = parsed.data;
+    const { originalCode, improvedCode, language, problemStatement, reviewed } = parsed.data;
 
     try {
-        const result = await evaluate(originalCode, improvedCode, language, reviewed);
+        const result = await evaluate(originalCode, improvedCode, language, problemStatement, reviewed);
         return res.status(200).json(result);
     } catch (err) {
         console.error('evaluate failed:', err);

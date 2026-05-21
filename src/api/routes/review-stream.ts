@@ -7,12 +7,15 @@ import { saveCompletedRun } from '../../db/runs.js';
 export const reviewStreamRouter = Router();
 
 const ReviewRequest = z.object({
-    code:          z.string().min(1).max(20_000),
-    language:      z.string().min(1).max(50),
+    code:             z.string().min(1).max(20_000),
+    language:         z.string().min(1).max(50),
+    // Required after the CP pivot — every submission is "code solving a
+    // specific problem", and every agent reasons against the problem.
+    problemStatement: z.string().min(10).max(10_000),
     // 1 means "single pass" (back-compat for old clients); 5 is the upper bound.
     // Default to 3 — a sensible middle ground that catches most easy wins
     // without burning model budget on diminishing returns.
-    maxIterations: z.number().int().min(1).max(5).optional().default(3),
+    maxIterations:    z.number().int().min(1).max(5).optional().default(3),
 });
 
 reviewStreamRouter.post('/review/stream', requireAuth, async (req: Request, res: Response) => {
@@ -24,7 +27,7 @@ reviewStreamRouter.post('/review/stream', requireAuth, async (req: Request, res:
         });
     }
 
-    const { code, language, maxIterations } = parsed.data;
+    const { code, language, problemStatement, maxIterations } = parsed.data;
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -46,7 +49,7 @@ reviewStreamRouter.post('/review/stream', requireAuth, async (req: Request, res:
     };
 
     try {
-        const result = await reviewLoop(code, language, maxIterations, onProgress);
+        const result = await reviewLoop(code, language, problemStatement, maxIterations, onProgress);
 
         // Persist the finished run before signalling done so the sidebar's
         // Recents list sees it on the next fetch. We don't fail the request
@@ -59,6 +62,7 @@ reviewStreamRouter.post('/review/stream', requireAuth, async (req: Request, res:
                 userId: req.user!.id,
                 code,
                 language,
+                problemStatement,
                 maxIterations,
                 loopResult: result,
             });
