@@ -6,8 +6,9 @@ import { review } from '../../orchestrator/pipeline.js';
 export const reviewRouter = Router();
 
 const ReviewRequest = z.object({
-    code: z.string().min(1).max(20_000),
-    language: z.string().min(1).max(50),
+    code:             z.string().min(1).max(20_000),
+    language:         z.string().min(1).max(50),
+    problemStatement: z.string().min(10).max(10_000),
 });
 
 reviewRouter.post('/review', requireAuth, async (req: Request, res: Response) => {
@@ -19,10 +20,10 @@ reviewRouter.post('/review', requireAuth, async (req: Request, res: Response) =>
         });
     }
 
-    const { code, language } = parsed.data;
+    const { code, language, problemStatement } = parsed.data;
 
     try {
-        const result = await review(code, language);
+        const result = await review(code, language, problemStatement);
         return res.status(200).json(result);
     } catch (err) {
         console.error('review pipeline failed:', err);

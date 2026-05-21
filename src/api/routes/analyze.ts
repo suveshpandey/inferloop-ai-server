@@ -8,6 +8,7 @@ export const analyzeRouter = Router();
 const AnalyzeRequest = z.object({
     code: z.string().min(1).max(20_000),
     language: z.string().min(1).max(50),
+    problemStatement: z.string().min(1).max(20_000),
 });
 
 analyzeRouter.post('/analyze', requireAuth, async (req: Request, res: Response) => {
@@ -19,10 +20,10 @@ analyzeRouter.post('/analyze', requireAuth, async (req: Request, res: Response) 
         });
     }
 
-    const { code, language } = parsed.data;
+    const { code, language, problemStatement } = parsed.data;
 
     try {
-        const result = await analyze(code, language);
+        const result = await analyze(code, language, problemStatement);
         return res.status(200).json(result);
     } catch (err) {
         console.error('analyze failed:', err);

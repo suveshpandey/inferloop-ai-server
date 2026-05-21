@@ -9,6 +9,7 @@ export const improveRouter = Router();
 const ImproveRequest = z.object({
     code: z.string().min(1).max(20_000),
     language: z.string().min(1).max(50),
+    problemStatement: z.string().min(1).max(20_000),
     reviewed: CriticOutput,
 });
 
@@ -21,10 +22,10 @@ improveRouter.post('/improve', requireAuth, async (req: Request, res: Response) 
         });
     }
 
-    const { code, language, reviewed } = parsed.data;
+    const { code, language, problemStatement, reviewed } = parsed.data;
 
     try {
-        const result = await improve(code, language, reviewed);
+        const result = await improve(code, language, problemStatement, reviewed);
         return res.status(200).json(result);
     } catch (err) {
         console.error('improve failed:', err);

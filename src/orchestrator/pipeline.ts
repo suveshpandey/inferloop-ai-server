@@ -45,23 +45,24 @@ export type OnProgress = (event: ProgressEvent) => void;
 async function reviewOnce(
     code: string,
     language: string,
+    problemStatement: string,
     iteration: number,
     onProgress?: OnProgress,
 ): Promise<ReviewResultT> {
     onProgress?.({ type: 'stage_start',    iteration, stage: 'analyzer' });
-    const findings = await analyze(code, language);
+    const findings = await analyze(code, language, problemStatement);
     onProgress?.({ type: 'stage_complete', iteration, stage: 'analyzer', result: findings });
 
     onProgress?.({ type: 'stage_start',    iteration, stage: 'critic' });
-    const reviewed = await critique(code, language, findings);
+    const reviewed = await critique(code, language, problemStatement, findings);
     onProgress?.({ type: 'stage_complete', iteration, stage: 'critic', result: reviewed });
 
     onProgress?.({ type: 'stage_start',    iteration, stage: 'improver' });
-    const improved = await improve(code, language, reviewed);
+    const improved = await improve(code, language, problemStatement, reviewed);
     onProgress?.({ type: 'stage_complete', iteration, stage: 'improver', result: improved });
 
     onProgress?.({ type: 'stage_start',    iteration, stage: 'evaluator' });
-    const evaluation = await evaluate(code, improved.improvedCode, language, reviewed);
+    const evaluation = await evaluate(code, improved.improvedCode, language, problemStatement, reviewed);
     onProgress?.({ type: 'stage_complete', iteration, stage: 'evaluator', result: evaluation });
 
     return { findings, reviewed, improved, evaluation };
@@ -85,6 +86,7 @@ async function reviewOnce(
 export async function reviewLoop(
     initialCode: string,
     language: string,
+    problemStatement: string,
     maxIterations: number,
     onProgress?: OnProgress,
 ): Promise<LoopResultT> {
@@ -100,7 +102,7 @@ export async function reviewLoop(
     for (let i = 1; i <= cap; i++) {
         onProgress?.({ type: 'iteration_start', iteration: i });
 
-        const result = await reviewOnce(currentCode, language, i, onProgress);
+        const result = await reviewOnce(currentCode, language, problemStatement, i, onProgress);
         const iterationResult: IterationResultT = {
             ...result,
             iteration: i,
@@ -149,6 +151,7 @@ export async function reviewLoop(
 export async function review(
     code: string,
     language: string,
+    problemStatement: string,
     onProgress?: (event: { type: 'stage_start' | 'stage_complete'; stage: Stage; result?: unknown }) => void,
 ): Promise<ReviewResultT> {
     const wrapped: OnProgress | undefined = onProgress
@@ -160,5 +163,5 @@ export async function review(
             }
         }
         : undefined;
-    return reviewOnce(code, language, 1, wrapped);
+    return reviewOnce(code, language, problemStatement, 1, wrapped);
 }
