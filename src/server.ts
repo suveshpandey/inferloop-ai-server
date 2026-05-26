@@ -13,6 +13,8 @@ import { evaluateRouter } from './api/routes/evaluate.js';
 import { reviewRouter } from './api/routes/review.js';
 import { reviewStreamRouter } from './api/routes/review-stream.js';
 import { runsRouter } from './api/routes/runs.js';
+import { testCasesRouter } from './api/routes/test-cases.js';
+import { executeTestsRouter } from './api/routes/execute-tests.js';
 
 const GREEN = '\x1b[32m';
 const RED = '\x1b[31m';
@@ -44,6 +46,8 @@ async function start() {
     app.use('/api', reviewRouter);
     app.use('/api', reviewStreamRouter);
     app.use('/api', runsRouter);
+    app.use('/api', testCasesRouter);
+    app.use('/api', executeTestsRouter);
 
     app.listen(env.PORT, () => {
         console.log(`${GREEN}✓ Server is running on port ${env.PORT}${RESET}`);
