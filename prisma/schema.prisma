@@ -15,13 +15,12 @@ model User {
   emailVerifiedAt DateTime?
   createdAt       DateTime  @default(now())
 
-  refreshTokens   RefreshToken[]
-  runs            Run[]
-
+  refreshTokens RefreshToken[]
+  runs          Run[]
 }
 
 model Run {
-  id                String      @id @default(cuid())
+  id                String   @id @default(cuid())
   userId            String
   title             String
   language          String
@@ -29,17 +28,25 @@ model Run {
   // pre-pivot runs (which were generic-review without a problem) still load.
   // New submissions are required to provide one (enforced at the API layer).
   problemStatement  String?
-  code              String      // original input the user submitted
-  finalCode         String      // surfaced as the "improved" result (per pipeline rules)
+  code              String // original input the user submitted
+  finalCode         String // surfaced as the "improved" result (per pipeline rules)
   maxIterations     Int
-  iterationsRun    Int
-  terminationReason String      // 'converged' | 'regressed' | 'no-findings' | 'max-iterations'
-  finalScore        Int?        // last iteration's evaluator.scores.overall (null if no iterations)
-  createdAt         DateTime    @default(now())
+  iterationsRun     Int
+  terminationReason String // 'converged' | 'regressed' | 'no-findings' | 'max-iterations'
+  finalScore        Int? // last iteration's evaluator.scores.overall (null if no iterations)
+  // Phase 2: % of test cases the finalCode passes in the sandbox. Denormalized
+  // from TestResult rows for cheap listing on the sidebar (e.g. "7/10 passing"
+  // without joining results). Nullable because (a) legacy pre-Phase-2 runs
+  // have no tests, and (b) the sandbox step is skipped when it fails, leaving
+  // the agent loop's result untouched.
+  testPassRate      Int?
+  createdAt         DateTime @default(now())
   completedAt       DateTime
 
-  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   iterations  Iteration[]
+  testCases   TestCase[]
+  testResults TestResult[]
 
   @@index([userId, createdAt])
 }
@@ -47,31 +54,77 @@ model Run {
 model Iteration {
   id              String   @id @default(cuid())
   runId           String
-  iterationIndex  Int      // 1-based
-  inputCode       String   // code fed into this iteration
+  iterationIndex  Int // 1-based
+  inputCode       String // code fed into this iteration
   analyzerOutput  Json
   criticOutput    Json
   improverOutput  Json
   evaluatorOutput Json
-  overallScore    Int      // denormalized from evaluatorOutput.scores.overall for cheap querying
+  overallScore    Int // denormalized from evaluatorOutput.scores.overall for cheap querying
   createdAt       DateTime @default(now())
 
-  run  Run  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  run Run @relation(fields: [runId], references: [id], onDelete: Cascade)
 
   @@unique([runId, iterationIndex])
   @@index([runId])
 }
 
-model RefreshToken {
-  id         String     @id @default(cuid())
-  userId     String
-  tokenHash  String     @unique
-  expiresAt  DateTime
-  revokedAt  DateTime?
-  createdAt  DateTime   @default(now())
+model TestCase {
+  id             String     @id @default(cuid())
+  runId          String
+  name           String // short human label, e.g. "edge: n=1"
+  input          String // piped to the program's stdin
+  expectedOutput String // compared against stdout (line-trimmed)
+  source         TestSource
+  // Optional per-case overrides; null means use env.SANDBOX_TIMEOUT_MS /
+  // a default memory cap. Most CP problems don't need per-case tuning.
+  timeLimitMs    Int?
+  memoryLimitMb  Int?
+  createdAt      DateTime   @default(now())
 
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  run     Run          @relation(fields: [runId], references: [id], onDelete: Cascade)
+  results TestResult[]
+
+  @@index([runId])
+}
+
+model TestResult {
+  id           String   @id @default(cuid())
+  testCaseId   String
+  runId        String // denormalized so listings don't have to join TestCase
+  iterationId  String? // null today; reserved for per-iteration testing later
+  passed       Boolean
+  actualOutput String?
+  stderr       String?
+  exitCode     Int?
+  durationMs   Int?
+  // Closed set: 'ok' | 'wrong_answer' | 'timeout' | 'runtime_error' |
+  // 'compile_error' | 'sandbox_error'. Stored as string (not enum) so adding
+  // a new reason doesn't require a migration.
+  errorReason  String?
+  createdAt    DateTime @default(now())
+
+  testCase TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  run      Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([testCaseId])
+}
+
+enum TestSource {
+  generated
+  manual
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-
 }

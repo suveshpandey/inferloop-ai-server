@@ -5,7 +5,19 @@ export const env = {
     JWT_ACCESS_SECRET:      process.env.JWT_ACCESS_SECRET!,
     JWT_ACCESS_TTL:         process.env.JWT_ACCESS_TTL || '15m',
     REFRESH_TOKEN_TTL_DAYS: Number(process.env.REFRESH_TOKEN_TTL_DAYS) || 30,
-    OLLAMA_HOST: process.env.OLLAMA_HOST || 'http://localhost:11434',
+    LLM_PROVIDER: (process.env.LLM_PROVIDER || 'ollama') as 'ollama' | 'gemini',
+    OLLAMA_HOST:  process.env.OLLAMA_HOST  || 'http://localhost:11434',
     OLLAMA_MODEL: process.env.OLLAMA_MODEL || 'qwen2.5-coder:7b',
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
+    GEMINI_MODEL:   process.env.GEMINI_MODEL   || 'gemini-2.5-flash',
     CORS_ORIGIN: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    VERCEL_TOKEN:          process.env.VERCEL_TOKEN          || '',
+    VERCEL_TEAM_ID:        process.env.VERCEL_TEAM_ID        || '',
+    VERCEL_PROJECT_ID:     process.env.VERCEL_PROJECT_ID     || '',
+    // Snapshot ID for the C++ runtime (node24 base + g++ preinstalled). Built
+    // once via `pnpm tsx src/scripts/build-cpp-snapshot.ts`; empty until then.
+    VERCEL_CPP_SNAPSHOT_ID: process.env.VERCEL_CPP_SNAPSHOT_ID || '',
+    SANDBOX_TIMEOUT_MS:    Number(process.env.SANDBOX_TIMEOUT_MS)    || 5_000,
+    SANDBOX_MAX_OUTPUT_KB: Number(process.env.SANDBOX_MAX_OUTPUT_KB) || 64,
+    MAX_GENERATED_CASES:   Number(process.env.MAX_GENERATED_CASES)   || 8,
 }

@@ -1,4 +1,4 @@
-import { chatJSON } from '../llm/ollama.js';
+import { chatJSON } from '../llm/index.js';
 import {
     ImproverOutput,
     type ImproverOutputT,

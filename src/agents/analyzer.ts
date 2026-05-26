@@ -1,4 +1,4 @@
-import { chatJSON } from '../llm/ollama.js';
+import { chatJSON } from '../llm/index.js';
 import { AnalyzerOutput, type AnalyzerOutputT } from './schemas.js';
 
 const SYSTEM_PROMPT = `You are a senior competitive-programming reviewer. The user is solving a programming problem (Codeforces / CodeChef / LeetCode style) and has submitted a candidate solution in Python or C++. Read the problem statement first, then the code, and report concrete issues that would cause Wrong Answer, Time Limit Exceeded, Memory Limit Exceeded, or Runtime Error on a typical judge.
