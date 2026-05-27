@@ -1,7 +1,5 @@
-// CRUD for a run's test cases. Mounted at /api, so the full paths are
-// /api/runs/:runId/test-cases[/:id]. All routes require auth and resolve
-// ownership through the repo (which scopes every query by userId) — a case on
-// someone else's run reads back as 404, never a leak.
+// CRUD for a run's test cases, mounted at /api (→ /api/runs/:runId/test-cases[/:id]).
+// All routes require auth; ownership is scoped in the repo, so another user's case 404s.
 
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
@@ -15,8 +13,7 @@ import {
 
 export const testCasesRouter = Router();
 
-// Manual-case payload. `source` is intentionally absent — it's forced to
-// 'manual' in the repo. Limits mirror the review route's code/size caps.
+// Manual-case payload. No `source` — forced to 'manual' in the repo.
 const CreateBody = z.object({
     name:           z.string().min(1).max(120),
     input:          z.string().max(20_000),

@@ -3,13 +3,9 @@ import { prisma } from '../db/client.js';
 import { createTestCase } from '../db/test-cases.js';
 import { executeTestsForRun } from '../services/run-tests.js';
 
-// End-to-end check for the 2.2 data layer: seed a throwaway user + run whose
-// finalCode doubles its input, attach one case that should pass and one that
-// should fail, execute, and assert the pass-rate is exactly 50.
-//
-// Everything created here is torn down in `finally`, so the harness leaves no
-// rows behind. Requires a working sandbox (VERCEL_* creds) since it actually
-// runs the code.
+// Checks the test-execution data layer: seed a throwaway user + a run whose
+// finalCode doubles its input, attach one passing + one failing case, execute,
+// and assert pass-rate is 50. Torn down in `finally`. Needs sandbox creds.
 
 const PROGRAM = 'print(int(input()) * 2)';
 

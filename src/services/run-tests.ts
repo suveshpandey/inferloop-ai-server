@@ -1,8 +1,5 @@
-// Service: run every test case of a run through the sandbox and store the
-// results. Sits between the repo layer (db/test-cases.ts) and the sandbox
-// runner (sandbox/runner.ts). Stateless — all persistence goes through the
-// repo. The pipeline (Sub-phase 2.4) and the execute-tests route both call
-// `executeTestsForRun`.
+// Runs a run's test cases through the sandbox and persists the results.
+// Sits between the repo (db/test-cases.ts) and the sandbox runner.
 
 import { prisma } from '../db/client.js';
 import { runCode } from '../sandbox/runner.js';
@@ -10,13 +7,10 @@ import { saveTestResults, type TestResultRow } from '../db/test-cases.js';
 import { env } from '../config/env.js';
 import type { SupportedLanguage } from '../sandbox/types.js';
 
-// At most this many cases hit the sandbox at once. Vercel rate-limits sandbox
-// creation; 3 keeps us well under it while still parallelising the common
-// 5–8-case run.
+// Cap on concurrent sandbox calls — Vercel rate-limits sandbox creation.
 const MAX_PARALLEL = 3;
 
-// One result enriched with its case's name so the route/UI can render rows
-// without a second join.
+// A result enriched with its case's name, so the route/UI skips a join.
 export type ExecutedResult = TestResultRow & {
     name: string;
 };
@@ -27,9 +21,8 @@ export type ExecuteTestsResult = {
     testPassRate: number | null;
 };
 
-// Trailing whitespace per line + trailing blank lines are insignificant for
-// CP-style stdout comparison. Normalise both sides the same way so a missing
-// final newline doesn't fail an otherwise-correct answer.
+// Normalise CP-style stdout: strip trailing whitespace per line + trailing
+// blank lines, so a missing final newline doesn't fail a correct answer.
 function normalizeOutput(s: string): string {
     return s
         .replace(/\r\n/g, '\n')
@@ -61,12 +54,9 @@ async function mapWithConcurrency<T, R>(
 }
 
 /**
- * Execute all test cases for a run against its `finalCode` and persist the
- * results. Idempotent: re-running replaces prior results.
- *
- * Returns null when the run doesn't exist or isn't the caller's (route → 404).
- * Returns `{ results: [], testPassRate: null }` when the run exists but has no
- * cases yet — nothing to run, but not an error.
+ * Run a run's cases against its `finalCode` and persist results. Idempotent.
+ * Returns null if the run isn't the caller's (→ 404); `{ results: [],
+ * testPassRate: null }` if it has no cases yet.
  */
 export async function executeTestsForRun(
     runId: string,
@@ -97,10 +87,8 @@ export async function executeTestsForRun(
             timeoutMs: c.timeLimitMs ?? env.SANDBOX_TIMEOUT_MS,
         });
 
-        // A case passes only when the program exited cleanly AND its output
-        // matches. A clean exit with wrong output is 'wrong_answer'; any other
-        // failure (timeout, crash, compile error, sandbox issue) carries the
-        // runner's reason through unchanged.
+        // Pass = clean exit AND matching output. Clean exit + wrong output is
+        // 'wrong_answer'; any other failure keeps the runner's reason.
         const outputMatches =
             exec.errorReason === 'ok' &&
             normalizeOutput(exec.stdout) === normalizeOutput(c.expectedOutput);

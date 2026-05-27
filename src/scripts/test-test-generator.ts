@@ -1,11 +1,6 @@
-// Standalone harness for the test-generator agent (Sub-phase 2.3).
-//
-// Run: pnpm tsx src/scripts/test-test-generator.ts
-//
-// Hits the live LLM (whatever LLM_PROVIDER points at). On Ollama
-// (qwen2.5-coder:7b) the cases will be sane but modest; on Gemini they're
-// noticeably sharper on harder problems. That quality gap is expected, not a
-// defect — this harness only checks SHAPE and basic sanity, not cleverness.
+// Harness for the test-generator agent. Run: pnpm tsx src/scripts/test-test-generator.ts
+// Hits the live LLM and checks SHAPE + basic sanity only, not case quality
+// (Ollama cases are modest; Gemini sharper — expected, not a defect).
 
 import { generateTestCases } from '../agents/test-generator.js';
 import { TestGeneratorOutput } from '../agents/schemas.js';

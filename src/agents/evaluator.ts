@@ -6,10 +6,8 @@ import {
     type FailedCaseT,
 } from './schemas.js';
 
-// Phase 2.4: the measured sandbox outcome handed to the Evaluator as ground
-// truth. `passRate` is 0–100 over the final code; `failedCases` are the cases
-// it still fails (empty when everything passed). Optional on `evaluate` —
-// absent on legacy/fallback runs where the sandbox didn't run.
+// Measured sandbox outcome over the final code, handed to the Evaluator as
+// ground truth. `failedCases` is empty when everything passed.
 export type EvaluatorTestResults = {
     passRate:    number;
     failedCases: FailedCaseT[];

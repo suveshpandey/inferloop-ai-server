@@ -76,15 +76,10 @@ export const EvaluatorScores = z.object({
     stability:      z.number().int().min(0).max(100),
     readability:    z.number().int().min(0).max(100),
     overall:        z.number().int().min(0).max(100),
-    // CP-specific signals. Optional so non-algorithmic submissions (and
-    // legacy iterations) still parse. The Evaluator is asked to populate
-    // them when the problem and the rewrite touch on algorithmic concerns.
+    // CP-specific signals. Optional — populated only when the problem/rewrite is algorithmic.
     timeComplexityImproved: z.number().int().min(0).max(100).optional(),
     edgeCaseCoverage:       z.number().int().min(0).max(100).optional(),
-    // Phase 2.4: the MEASURED sandbox pass-rate, handed to the Evaluator as
-    // ground truth and echoed back here so the verdict and the number the UI
-    // shows come from one object. Optional because the sandbox step can be
-    // unavailable (legacy / fallback runs), in which case it's omitted.
+    // Measured sandbox pass-rate, echoed back from ground truth. Optional — omitted when the sandbox didn't run.
     testPassRate:           z.number().int().min(0).max(100).optional(),
 });
 export const EvaluatorOutput = z.object({
@@ -96,24 +91,20 @@ export const EvaluatorOutput = z.object({
 export type EvaluatorOutputT = z.infer<typeof EvaluatorOutput>;
 
 
-// Phase 2.4: a test case the current code FAILED on, with the concrete
-// input/expected/actual. Constructed in-code from sandbox results (not parsed
-// from an LLM) — fed into the next Improver iteration so it can target the
-// fix, and into the final Evaluator so it can cite specific failures.
-// `expected` may be empty (some problems have empty-string output); `actual`
-// holds stdout for a wrong answer, or the stderr/reason for a crash/timeout.
+// A case the code FAILED on, built in-code from sandbox results. Fed to the next
+// Improver (to target the fix) and the final Evaluator (to cite failures).
+// `actual` holds stdout for a wrong answer, or the stderr/reason for a crash/timeout.
 export const FailedCase = z.object({
     name:        z.string(),
     input:       z.string(),
     expected:    z.string(),
     actual:      z.string(),
-    errorReason: z.string(),  // 'wrong_answer' | 'timeout' | 'runtime_error' | 'compile_error' | 'sandbox_error'
+    errorReason: z.string(),
 });
 export type FailedCaseT = z.infer<typeof FailedCase>;
 
 
-// Test categories the generator tags each case with. We coerce a few common
-// LLM aliases into the canonical set so the parse doesn't fail on a synonym.
+// Test category, with common LLM aliases coerced to the canonical set.
 const TestCategorySchema = z.preprocess((value) => {
     if (typeof value !== 'string') return value;
     const normalized = value.trim().toLowerCase();
@@ -126,9 +117,8 @@ const TestCategorySchema = z.preprocess((value) => {
     return normalized;
 }, z.enum(['sample', 'edge', 'stress']));
 
-// A single generated test case. Deliberately has NO `source` field — the
-// repo layer stamps `source: 'generated'` when persisting via
-// bulkCreateGenerated, keeping the agent unaware of persistence concerns.
+// A generated test case. No `source` field by design — the repo stamps
+// `source: 'generated'` on persist, keeping the agent unaware of storage.
 export const TestCaseSchema = z.object({
     name: z.string().min(1).max(120),
     input: z.string().max(20_000),

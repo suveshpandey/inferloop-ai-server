@@ -69,8 +69,7 @@ export async function generateTestCases(
         console.error('Test-generator raw response:', JSON.stringify(raw, null, 2));
         throw parsed.error;
     }
-    // The model occasionally ignores the cap — enforce it ourselves so a
-    // chatty response can't blow past MAX_GENERATED_CASES downstream.
+    // Enforce the cap ourselves — the model occasionally ignores it.
     if (parsed.data.cases.length > maxCases) {
         parsed.data.cases = parsed.data.cases.slice(0, maxCases);
     }

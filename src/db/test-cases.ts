@@ -1,17 +1,13 @@
-// Repository layer for test cases and their execution results.
+// Repository for test cases and their execution results.
 //
-// Every user-facing function is scoped by `userId` — never trust the runId
-// from the client on its own. We filter through the `Run` relation
-// (`run: { userId }`) so a forged runId for someone else's run resolves to
-// "not found", not a leak. The two internal functions used by the pipeline
-// (`bulkCreateGenerated`, `saveTestResults`) skip the userId check because
-// they're called server-side with a run the caller already owns.
+// User-facing functions are scoped by `userId` via the `Run` relation
+// (`run: { userId }`), so a forged runId resolves to "not found", not a leak.
+// Pipeline-side functions (`bulkCreateGenerated`, `saveTestResults`) skip that
+// check — they run server-side on an already-owned run.
 
 import { prisma } from './client.js';
 
-// Shape accepted from the API for a manual case. `source` is NOT here — it's
-// forced to 'manual' server-side so a client can't masquerade a case as
-// AI-generated.
+// API shape for a manual case. No `source` — it's forced to 'manual' server-side.
 export type TestCaseInput = {
     name:           string;
     input:          string;
@@ -20,8 +16,7 @@ export type TestCaseInput = {
     memoryLimitMb?: number | null;
 };
 
-// One stored execution result, ready for `createMany`. Built by the
-// run-tests service; persisted here.
+// One stored execution result, ready for `createMany`.
 export type TestResultRow = {
     testCaseId:   string;
     passed:       boolean;
@@ -75,8 +70,8 @@ export async function createTestCase(runId: string, userId: string, data: TestCa
 
 // ─────────────────────────── Update / Delete ───────────────────────────────
 
-// Edits a case by id, scoped to the owner. Verify-then-update keeps it simple
-// (updateMany can't return the row). Returns null if not owned/found.
+// Edit a case by id, scoped to the owner (verify-then-update so we can return
+// the row). Returns null if not owned/found.
 export async function updateTestCase(id: string, userId: string, data: Partial<TestCaseInput>) {
     const owned = await prisma.testCase.findFirst({
         where:  { id, run: { userId } },
@@ -96,9 +91,7 @@ export async function updateTestCase(id: string, userId: string, data: Partial<T
     });
 }
 
-// Deletes a case scoped to the owner. Returns the count (0 ⇒ 404). The
-// `run: { userId }` filter is the defense-in-depth — a route bug can't delete
-// someone else's case.
+// Delete a case scoped to the owner. Returns the count (0 ⇒ 404).
 export async function deleteTestCase(id: string, userId: string) {
     const result = await prisma.testCase.deleteMany({
         where: { id, run: { userId } },
@@ -108,9 +101,7 @@ export async function deleteTestCase(id: string, userId: string) {
 
 // ─────────────────────────── Internal (pipeline-side) ──────────────────────
 
-// Bulk-insert AI-generated cases. Called by the pipeline after the
-// test-generator agent runs (Sub-phase 2.4) — the run is already owned by
-// then, so no userId check. Stamps `source: 'generated'`.
+// Bulk-insert AI-generated cases (pipeline-side, run already owned). Stamps `source: 'generated'`.
 export async function bulkCreateGenerated(
     runId: string,
     cases: TestCaseInput[],
@@ -129,9 +120,8 @@ export async function bulkCreateGenerated(
     });
 }
 
-// Persist a run's execution results idempotently: wipe prior results for the
-// run, insert the new ones, and denormalize the pass-rate onto Run — all in
-// one transaction so a listing never sees a half-updated state.
+// Persist results idempotently: wipe prior results, insert new, denormalize
+// pass-rate onto Run — one transaction so listings never see a half-update.
 export async function saveTestResults(
     runId: string,
     results: TestResultRow[],
@@ -140,8 +130,7 @@ export async function saveTestResults(
     await prisma.$transaction([
         prisma.testResult.deleteMany({ where: { runId } }),
         prisma.testResult.createMany({
-            // Pick explicit columns — callers may pass enriched rows (e.g. with
-            // a `name` for the UI) that aren't TestResult fields.
+            // Explicit columns — callers may pass enriched rows (e.g. `name`) that aren't TestResult fields.
             data: results.map((r) => ({
                 runId,
                 testCaseId:   r.testCaseId,
