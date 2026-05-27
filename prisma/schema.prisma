@@ -40,6 +40,12 @@ model Run {
   // have no tests, and (b) the sandbox step is skipped when it fails, leaving
   // the agent loop's result untouched.
   testPassRate      Int?
+  // Phase 2.4: the single end-of-loop Evaluator verdict (EvaluatorOutputT as
+  // JSON). The Evaluator no longer judges each iteration — it runs once at the
+  // end as a final reporter, so its output lives on the Run, not the Iteration.
+  // Nullable because legacy pre-2.4 runs stored the verdict per-iteration, and
+  // a sandbox-fallback run may not produce one.
+  finalEvaluation   Json?
   createdAt         DateTime @default(now())
   completedAt       DateTime
 
@@ -59,8 +65,18 @@ model Iteration {
   analyzerOutput  Json
   criticOutput    Json
   improverOutput  Json
-  evaluatorOutput Json
-  overallScore    Int // denormalized from evaluatorOutput.scores.overall for cheap querying
+  // Phase 2.4: nullable now. The Evaluator runs once at the end of the loop
+  // (stored on Run.finalEvaluation), not per iteration — so a test-driven
+  // iteration has no per-iteration verdict. Populated only on legacy/fallback
+  // iterations where the Evaluator still judged each pass.
+  evaluatorOutput Json?
+  // Nullable for the same reason — this was denormalized from the per-iteration
+  // evaluatorOutput.scores.overall, which no longer exists for test-driven runs.
+  overallScore    Int?
+  // Phase 2.4: this iteration's measured sandbox pass-rate (0–100), the signal
+  // that now drives loop termination. Null when the sandbox was unavailable
+  // for this iteration (fallback path) or for legacy pre-2.4 iterations.
+  testPassRate    Int?
   createdAt       DateTime @default(now())
 
   run Run @relation(fields: [runId], references: [id], onDelete: Cascade)

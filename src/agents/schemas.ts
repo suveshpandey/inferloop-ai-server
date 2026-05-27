@@ -81,6 +81,11 @@ export const EvaluatorScores = z.object({
     // them when the problem and the rewrite touch on algorithmic concerns.
     timeComplexityImproved: z.number().int().min(0).max(100).optional(),
     edgeCaseCoverage:       z.number().int().min(0).max(100).optional(),
+    // Phase 2.4: the MEASURED sandbox pass-rate, handed to the Evaluator as
+    // ground truth and echoed back here so the verdict and the number the UI
+    // shows come from one object. Optional because the sandbox step can be
+    // unavailable (legacy / fallback runs), in which case it's omitted.
+    testPassRate:           z.number().int().min(0).max(100).optional(),
 });
 export const EvaluatorOutput = z.object({
     verdict: EvaluatorVerdict,
@@ -89,6 +94,54 @@ export const EvaluatorOutput = z.object({
     unaddressedFindings: z.array(AnalyzerFinding).max(15).optional(),
 });
 export type EvaluatorOutputT = z.infer<typeof EvaluatorOutput>;
+
+
+// Phase 2.4: a test case the current code FAILED on, with the concrete
+// input/expected/actual. Constructed in-code from sandbox results (not parsed
+// from an LLM) — fed into the next Improver iteration so it can target the
+// fix, and into the final Evaluator so it can cite specific failures.
+// `expected` may be empty (some problems have empty-string output); `actual`
+// holds stdout for a wrong answer, or the stderr/reason for a crash/timeout.
+export const FailedCase = z.object({
+    name:        z.string(),
+    input:       z.string(),
+    expected:    z.string(),
+    actual:      z.string(),
+    errorReason: z.string(),  // 'wrong_answer' | 'timeout' | 'runtime_error' | 'compile_error' | 'sandbox_error'
+});
+export type FailedCaseT = z.infer<typeof FailedCase>;
+
+
+// Test categories the generator tags each case with. We coerce a few common
+// LLM aliases into the canonical set so the parse doesn't fail on a synonym.
+const TestCategorySchema = z.preprocess((value) => {
+    if (typeof value !== 'string') return value;
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'example') return 'sample';
+    if (normalized === 'basic') return 'sample';
+    if (normalized === 'boundary') return 'edge';
+    if (normalized === 'corner') return 'edge';
+    if (normalized === 'large') return 'stress';
+    if (normalized === 'performance') return 'stress';
+    return normalized;
+}, z.enum(['sample', 'edge', 'stress']));
+
+// A single generated test case. Deliberately has NO `source` field — the
+// repo layer stamps `source: 'generated'` when persisting via
+// bulkCreateGenerated, keeping the agent unaware of persistence concerns.
+export const TestCaseSchema = z.object({
+    name: z.string().min(1).max(120),
+    input: z.string().max(20_000),
+    expectedOutput: z.string().max(20_000),
+    category: TestCategorySchema.optional(),
+});
+export type TestCaseSchemaT = z.infer<typeof TestCaseSchema>;
+
+export const TestGeneratorOutput = z.object({
+    cases: z.array(TestCaseSchema).min(1).max(20),
+    summary: z.string().min(1).max(500),
+});
+export type TestGeneratorOutputT = z.infer<typeof TestGeneratorOutput>;
 
 
 export const ReviewResult = z.object({

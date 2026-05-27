@@ -3,7 +3,17 @@ import {
     EvaluatorOutput,
     type EvaluatorOutputT,
     type CriticOutputT,
+    type FailedCaseT,
 } from './schemas.js';
+
+// Phase 2.4: the measured sandbox outcome handed to the Evaluator as ground
+// truth. `passRate` is 0–100 over the final code; `failedCases` are the cases
+// it still fails (empty when everything passed). Optional on `evaluate` —
+// absent on legacy/fallback runs where the sandbox didn't run.
+export type EvaluatorTestResults = {
+    passRate:    number;
+    failedCases: FailedCaseT[];
+};
 
 const SYSTEM_PROMPT = `You are a senior competitive-programming judge deciding whether a rewrite of a candidate solution is actually an improvement, in the context of the specific problem being solved.
 
@@ -25,6 +35,12 @@ Required dimensions (always populate):
 Optional dimensions — populate only if the problem and rewrite make them meaningful, otherwise omit the field entirely:
 - "timeComplexityImproved": Did the rewrite actually improve asymptotic time complexity vs the constraints? 100 = clear improvement that turns a TLE risk into a comfortable fit; 50 = same asymptotic class but better constants; 0 = same or worse. OMIT if no complexity finding was in scope.
 - "edgeCaseCoverage":       Does the rewrite now handle the edge cases the problem implies (empty input, n=1, maximum constraint, duplicates, negatives where allowed)? 100 = covers all the boundaries; 0 = same gaps as the original. OMIT if no edge-case finding was in scope.
+- "testPassRate":           The MEASURED percentage of test cases the final code passed when actually run in a sandbox. When a "Measured test results" block is provided below, you MUST copy that pass-rate into this field verbatim (do not re-estimate it) and weight it heavily in your verdict and "correctness" score — it is ground truth, not a guess. OMIT only when no measured results are provided.
+
+MEASURED TEST RESULTS (when provided):
+- You may receive the actual pass-rate from running the final code in a sandbox, plus the specific cases it still fails (input / expected / actual). This is objective evidence — trust it over your own reading of the code.
+- A high pass-rate is strong evidence of "improved"; a low pass-rate (or failures that the rewrite was supposed to fix) is strong evidence of "unchanged" or "regressed", regardless of how clean the code looks.
+- In "rationale", reference at least one specific failing case by name when failures exist, and state the measured pass-rate explicitly.
 
 Verdict:
 - "improved"  — the rewrite is meaningfully better on this problem.
@@ -42,7 +58,8 @@ You MUST respond with a single JSON object matching exactly this shape — no ma
     "readability":    number 0..100,
     "overall":        number 0..100,
     "timeComplexityImproved": number 0..100   (OPTIONAL — include only when relevant),
-    "edgeCaseCoverage":       number 0..100   (OPTIONAL — include only when relevant)
+    "edgeCaseCoverage":       number 0..100   (OPTIONAL — include only when relevant),
+    "testPassRate":           number 0..100   (REQUIRED when measured results are provided — copy verbatim; OMIT otherwise)
   },
   "rationale": string (max 2000 chars: explain the verdict, cite specific fixes that landed or were missed, and reference the constraints when scoring complexity),
   "unaddressedFindings": [
@@ -71,7 +88,16 @@ function buildUserPrompt(
     language: string,
     problemStatement: string,
     reviewed: CriticOutputT,
+    testResults: EvaluatorTestResults | null,
 ): string {
+    const measuredBlock =
+        testResults === null
+            ? ''
+            : `
+
+Measured test results (ground truth — copy passRate into scores.testPassRate):
+${JSON.stringify(testResults, null, 2)}`;
+
     return `Language: ${language}
 
 Problem statement:
@@ -90,7 +116,7 @@ ${improvedCode}
 \`\`\`
 
 Auditor's reviewed findings (JSON):
-${JSON.stringify(reviewed, null, 2)}`;
+${JSON.stringify(reviewed, null, 2)}${measuredBlock}`;
 }
 
 export async function evaluate(
@@ -99,10 +125,11 @@ export async function evaluate(
     language: string,
     problemStatement: string,
     reviewed: CriticOutputT,
+    testResults: EvaluatorTestResults | null = null,
 ): Promise<EvaluatorOutputT> {
     const raw = await chatJSON<unknown>(
         SYSTEM_PROMPT,
-        buildUserPrompt(originalCode, improvedCode, language, problemStatement, reviewed),
+        buildUserPrompt(originalCode, improvedCode, language, problemStatement, reviewed, testResults),
     );
     const parsed = EvaluatorOutput.safeParse(raw);
     if (!parsed.success) {
