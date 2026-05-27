@@ -3,6 +3,7 @@ import {
     ImproverOutput,
     type ImproverOutputT,
     type CriticOutputT,
+    type FailedCaseT,
 } from './schemas.js';
 
 const SYSTEM_PROMPT = `You are a senior competitive-programming coach rewriting a candidate solution to fix the issues an auditor has approved. The user is solving a programming problem (Codeforces / CodeChef / LeetCode style) in Python or C++.
@@ -16,7 +17,13 @@ Your job:
 - Implement every "keep" finding and every "modify" finding (use the "revised" version for modified findings).
 - IGNORE all "drop" findings — those were rejected by the auditor.
 - Preserve the I/O contract (same function signature for LeetCode-style submissions; same stdin/stdout shape for Codeforces-style).
-- Do not invent new issues to fix that weren't in the findings.
+- Do not invent new issues to fix that weren't in the findings — with ONE exception: failing test cases (see below), which are concrete must-fix defects.
+
+FAILING TEST CASES (only when provided):
+- You may also receive a list of inputs the PREVIOUS version of this code failed on — each with the exact input, the expected output, and what the code actually produced (or the error it hit). These come from ACTUALLY RUNNING the code in a sandbox; they are ground truth, not opinion.
+- Treat every failing case as a top-priority, must-fix defect even if no finding above mentions it. Fixing these is your single most important job this round.
+- For each failure, reason about WHY this specific input produced the wrong output (or the timeout / crash), then fix the underlying logic so the whole class of such inputs works. Do NOT hard-code or special-case the literal input to fake a pass.
+- A "timeout" failure is an algorithmic problem — reduce the complexity; do not attempt to fix it with a micro-optimization.
 
 HOW MUCH TO CHANGE — this depends on the finding's category:
 
@@ -84,7 +91,16 @@ function buildUserPrompt(
     language: string,
     problemStatement: string,
     reviewed: CriticOutputT,
+    failedCases: FailedCaseT[],
 ): string {
+    const failuresBlock =
+        failedCases.length === 0
+            ? ''
+            : `
+
+Failing test cases from running the PREVIOUS attempt (fix these — they are ground truth):
+${JSON.stringify(failedCases, null, 2)}`;
+
     return `Language: ${language}
 
 Problem statement:
@@ -98,7 +114,7 @@ ${code}
 \`\`\`
 
 Auditor's reviewed findings (JSON):
-${JSON.stringify(reviewed, null, 2)}`;
+${JSON.stringify(reviewed, null, 2)}${failuresBlock}`;
 }
 
 export async function improve(
@@ -106,10 +122,11 @@ export async function improve(
     language: string,
     problemStatement: string,
     reviewed: CriticOutputT,
+    failedCases: FailedCaseT[] = [],
 ): Promise<ImproverOutputT> {
     const raw = await chatJSON<unknown>(
         SYSTEM_PROMPT,
-        buildUserPrompt(code, language, problemStatement, reviewed),
+        buildUserPrompt(code, language, problemStatement, reviewed, failedCases),
     );
     const parsed = ImproverOutput.safeParse(raw);
     if (!parsed.success) {

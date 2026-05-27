@@ -14,8 +14,7 @@ export const env = {
     VERCEL_TOKEN:          process.env.VERCEL_TOKEN          || '',
     VERCEL_TEAM_ID:        process.env.VERCEL_TEAM_ID        || '',
     VERCEL_PROJECT_ID:     process.env.VERCEL_PROJECT_ID     || '',
-    // Snapshot ID for the C++ runtime (node24 base + g++ preinstalled). Built
-    // once via `pnpm tsx src/scripts/build-cpp-snapshot.ts`; empty until then.
+    // C++ runtime snapshot (g++ preinstalled). Built once via build-cpp-snapshot.ts; empty until then.
     VERCEL_CPP_SNAPSHOT_ID: process.env.VERCEL_CPP_SNAPSHOT_ID || '',
     SANDBOX_TIMEOUT_MS:    Number(process.env.SANDBOX_TIMEOUT_MS)    || 5_000,
     SANDBOX_MAX_OUTPUT_KB: Number(process.env.SANDBOX_MAX_OUTPUT_KB) || 64,

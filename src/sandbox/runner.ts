@@ -2,10 +2,8 @@ import { Sandbox } from '@vercel/sandbox';
 import { env } from '../config/env.js';
 import type { ErrorReason, RunParams, RunResult, SupportedLanguage } from './types.js';
 
-// One Vercel Sandbox runtime per language. The SDK exposes `python3.13`
-// natively, so Python needs no extra install step. C++ runs in `node24`
-// (Amazon Linux 2023 base) where `g++` is preinstalled — the runner
-// compiles inside the VM via `sh -c "g++ ... && ./a.out"`.
+// Vercel Sandbox runtime per language. Python runs in `python3.13` natively;
+// C++ runs in `node24` and compiles in-VM via the exec command below.
 const RUNTIME_BY_LANGUAGE: Record<SupportedLanguage, string> = {
     python: 'python3.13',
     cpp:    'node24',
@@ -19,19 +17,14 @@ function truncate(s: string): string {
         : s.slice(0, MAX_OUTPUT_BYTES) + `\n…[truncated at ${env.SANDBOX_MAX_OUTPUT_KB} KB]`;
 }
 
-// Per-language shell command. Stdin is fed via shell redirection from
-// `stdin.txt` written into the sandbox's working dir. For C++ we compile
-// first and bail out with a sentinel exit code on compile failure so the
-// caller can distinguish compile_error from runtime_error.
+// Per-language shell command. Stdin comes from `stdin.txt` via redirection.
+// C++ compiles first and exits 70 on compile failure (the compile_error sentinel).
 function buildExecCommand(language: SupportedLanguage): string {
     switch (language) {
         case 'python':
             return 'python3 solution.py < stdin.txt';
         case 'cpp':
-            // g++ is preinstalled via the snapshot built by
-            // src/scripts/build-cpp-snapshot.ts.
-            // Exit code 70 = compile error sentinel (arbitrary, > standard
-            // signal range). Matched in errorReasonFor below.
+            // g++ comes from the prebuilt snapshot. Exit 70 = compile-error sentinel (matched in errorReasonFor).
             return 'g++ -O2 -std=c++17 -o solution solution.cpp 2> compile.err || (cat compile.err 1>&2; exit 70) && ./solution < stdin.txt';
     }
 }
@@ -51,29 +44,25 @@ function errorReasonFor(opts: {
 }
 
 /**
- * Execute a single program in a Vercel Sandbox microVM and return its
- * captured output. The sandbox is created and destroyed inside this call —
- * no instance reuse across runs yet (Sub-phase 2.2 will batch).
+ * Run one program in a Vercel Sandbox microVM and return its captured output.
+ * The sandbox is created and destroyed within this call.
  *
- * Throws only on infrastructure failures (auth, missing token, SDK errors).
- * Program-level failures (timeout, runtime error, compile error) are
- * surfaced via `errorReason` in the returned result.
+ * Throws only on infrastructure failures (auth, missing token, SDK errors);
+ * program-level failures (timeout, runtime/compile error) come back via `errorReason`.
  */
 export async function runCode(params: RunParams): Promise<RunResult> {
     if (!env.VERCEL_TOKEN || !env.VERCEL_TEAM_ID || !env.VERCEL_PROJECT_ID) {
         throw new Error('VERCEL_TOKEN, VERCEL_TEAM_ID, and VERCEL_PROJECT_ID must all be set in .env to create a sandbox.');
     }
 
-    // C++ boots from a prebuilt snapshot that has g++ installed; everything
-    // else boots from a stock runtime image. The snapshot path omits
-    // `runtime` (it's inherited from the snapshot).
+    // C++ boots from the prebuilt g++ snapshot; everything else from a stock
+    // runtime image. The snapshot path omits `runtime` (inherited from the snapshot).
     const useCppSnapshot = params.language === 'cpp' && !!env.VERCEL_CPP_SNAPSHOT_ID;
     if (params.language === 'cpp' && !env.VERCEL_CPP_SNAPSHOT_ID) {
         throw new Error('VERCEL_CPP_SNAPSHOT_ID is not set — run `pnpm tsx src/scripts/build-cpp-snapshot.ts` once and paste the printed ID into .env.');
     }
-    // Sandbox lifetime: enough headroom for cold start + the execute step +
-    // a little slack so the abort signal (not the sandbox-level timeout)
-    // is what fires when the program runs over.
+    // Sandbox lifetime: cold start + exec + slack, so our AbortSignal (not the
+    // sandbox-level timeout) is what fires when a program runs over.
     const sandbox = useCppSnapshot
         ? await Sandbox.create({
             token:     env.VERCEL_TOKEN,
@@ -96,8 +85,7 @@ export async function runCode(params: RunParams): Promise<RunResult> {
             { path: 'stdin.txt',                    content: params.stdin },
         ]);
 
-        // AbortSignal is what enforces the per-program time limit. The
-        // sandbox-level `timeout` above is a coarser ceiling.
+        // AbortSignal enforces the per-program limit; the sandbox `timeout` is a coarser ceiling.
         const controller = new AbortController();
         const timer      = setTimeout(() => controller.abort(), params.timeoutMs);
         const startedAt  = Date.now();
@@ -117,8 +105,7 @@ export async function runCode(params: RunParams): Promise<RunResult> {
             stdout   = await result.stdout();
             stderr   = await result.stderr();
         } catch (err) {
-            // AbortError ⇒ we hit our own timeout. Anything else is an
-            // infrastructure problem we want surfaced.
+            // Abort ⇒ our timeout fired. Anything else is infra — surface it.
             if (controller.signal.aborted) {
                 timedOut = true;
             } else {
@@ -136,8 +123,7 @@ export async function runCode(params: RunParams): Promise<RunResult> {
             errorReason: errorReasonFor({ exitCode, timedOut }),
         };
     } finally {
-        // Always stop the sandbox, even if writeFiles or runCommand threw —
-        // leaking a running VM costs money.
+        // Always stop the sandbox — a leaked running VM costs money.
         await sandbox.stop().catch(() => { /* best-effort */ });
     }
 }

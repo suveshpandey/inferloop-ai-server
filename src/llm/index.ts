@@ -1,14 +1,7 @@
-// LLM provider dispatcher.
-//
-// Every agent imports `chatJSON` from here, never from a specific provider
-// file. The active provider is picked once at module load from
-// `env.LLM_PROVIDER`, so adding a new backend later (e.g., DeepSeek) is:
-//   1. write `./deepseek.ts` that exports `chatJSON<T>(system, user)`
-//      with the same signature and JSON-string return shape,
-//   2. add one case below,
-//   3. flip `LLM_PROVIDER=deepseek` in the env.
-//
-// The agent layer stays untouched across all of this.
+// LLM provider dispatcher. Agents import `chatJSON` from here, never from a
+// provider file. The provider is picked once at load from `env.LLM_PROVIDER`.
+// To add one: write `./x.ts` exporting `chatJSON<T>(system, user)`, add a case
+// below, flip `LLM_PROVIDER=x`.
 
 import { env } from "../config/env.js";
 import { chatJSON as ollamaChatJSON } from "./ollama.js";
@@ -21,9 +14,7 @@ function pickProvider(): ChatJSONFn {
         case 'gemini': return geminiChatJSON;
         case 'ollama': return ollamaChatJSON;
         default:
-            // Unknown provider in env — fail loudly at boot rather than
-            // silently falling back, so misconfigured prod doesn't quietly
-            // route to a wrong (or worse, free local) backend.
+            // Fail loud at boot rather than silently routing to a wrong backend.
             throw new Error(`Unknown LLM_PROVIDER: ${env.LLM_PROVIDER}`);
     }
 }

@@ -1,13 +1,11 @@
 import 'dotenv/config';
 import { runCode } from '../sandbox/runner.js';
 
-// Three assertions cover the closed-set ErrorReason vocabulary that the
-// data layer in 2.2 will branch on:
-//   1. success     → ok    + exact stdout match
-//   2. infinite    → timeout
-//   3. syntax err  → runtime_error (Python raises SyntaxError at parse time)
-//
-// Each assertion prints a one-line PASS/FAIL so the harness is greppable.
+// Three assertions over the ErrorReason vocabulary:
+//   1. success    → ok + exact stdout match
+//   2. infinite   → timeout
+//   3. syntax err → runtime_error
+// Each prints a one-line PASS/FAIL.
 
 let failed = 0;
 function assert(cond: boolean, label: string, detail?: unknown) {

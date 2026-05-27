@@ -76,11 +76,11 @@ export const EvaluatorScores = z.object({
     stability:      z.number().int().min(0).max(100),
     readability:    z.number().int().min(0).max(100),
     overall:        z.number().int().min(0).max(100),
-    // CP-specific signals. Optional so non-algorithmic submissions (and
-    // legacy iterations) still parse. The Evaluator is asked to populate
-    // them when the problem and the rewrite touch on algorithmic concerns.
+    // CP-specific signals. Optional — populated only when the problem/rewrite is algorithmic.
     timeComplexityImproved: z.number().int().min(0).max(100).optional(),
     edgeCaseCoverage:       z.number().int().min(0).max(100).optional(),
+    // Measured sandbox pass-rate, echoed back from ground truth. Optional — omitted when the sandbox didn't run.
+    testPassRate:           z.number().int().min(0).max(100).optional(),
 });
 export const EvaluatorOutput = z.object({
     verdict: EvaluatorVerdict,
@@ -89,6 +89,49 @@ export const EvaluatorOutput = z.object({
     unaddressedFindings: z.array(AnalyzerFinding).max(15).optional(),
 });
 export type EvaluatorOutputT = z.infer<typeof EvaluatorOutput>;
+
+
+// A case the code FAILED on, built in-code from sandbox results. Fed to the next
+// Improver (to target the fix) and the final Evaluator (to cite failures).
+// `actual` holds stdout for a wrong answer, or the stderr/reason for a crash/timeout.
+export const FailedCase = z.object({
+    name:        z.string(),
+    input:       z.string(),
+    expected:    z.string(),
+    actual:      z.string(),
+    errorReason: z.string(),
+});
+export type FailedCaseT = z.infer<typeof FailedCase>;
+
+
+// Test category, with common LLM aliases coerced to the canonical set.
+const TestCategorySchema = z.preprocess((value) => {
+    if (typeof value !== 'string') return value;
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'example') return 'sample';
+    if (normalized === 'basic') return 'sample';
+    if (normalized === 'boundary') return 'edge';
+    if (normalized === 'corner') return 'edge';
+    if (normalized === 'large') return 'stress';
+    if (normalized === 'performance') return 'stress';
+    return normalized;
+}, z.enum(['sample', 'edge', 'stress']));
+
+// A generated test case. No `source` field by design — the repo stamps
+// `source: 'generated'` on persist, keeping the agent unaware of storage.
+export const TestCaseSchema = z.object({
+    name: z.string().min(1).max(120),
+    input: z.string().max(20_000),
+    expectedOutput: z.string().max(20_000),
+    category: TestCategorySchema.optional(),
+});
+export type TestCaseSchemaT = z.infer<typeof TestCaseSchema>;
+
+export const TestGeneratorOutput = z.object({
+    cases: z.array(TestCaseSchema).min(1).max(20),
+    summary: z.string().min(1).max(500),
+});
+export type TestGeneratorOutputT = z.infer<typeof TestGeneratorOutput>;
 
 
 export const ReviewResult = z.object({

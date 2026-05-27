@@ -6,6 +6,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "tsx watch src/server.ts",
+    "build": "prisma generate && tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/server.js",
     "db:up": "docker compose up -d",
     "db:down": "docker compose stop",
     "db:reset": "docker compose down -v && docker compose up -d"

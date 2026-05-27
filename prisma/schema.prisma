@@ -24,22 +24,18 @@ model Run {
   userId            String
   title             String
   language          String
-  // The CP problem statement the user is solving. Nullable so legacy
-  // pre-pivot runs (which were generic-review without a problem) still load.
-  // New submissions are required to provide one (enforced at the API layer).
+  // CP problem the user is solving. Nullable for legacy pre-pivot runs; required at the API layer for new ones.
   problemStatement  String?
   code              String // original input the user submitted
-  finalCode         String // surfaced as the "improved" result (per pipeline rules)
+  finalCode         String // surfaced as the "improved" result
   maxIterations     Int
   iterationsRun     Int
-  terminationReason String // 'converged' | 'regressed' | 'no-findings' | 'max-iterations'
-  finalScore        Int? // last iteration's evaluator.scores.overall (null if no iterations)
-  // Phase 2: % of test cases the finalCode passes in the sandbox. Denormalized
-  // from TestResult rows for cheap listing on the sidebar (e.g. "7/10 passing"
-  // without joining results). Nullable because (a) legacy pre-Phase-2 runs
-  // have no tests, and (b) the sandbox step is skipped when it fails, leaving
-  // the agent loop's result untouched.
+  terminationReason String
+  finalScore        Int? // last evaluator's scores.overall; null if no iterations
+  // finalCode's sandbox pass-rate (0–100), denormalized for sidebar listing. Null on legacy runs or a skipped sandbox.
   testPassRate      Int?
+  // Single end-of-loop Evaluator verdict (EvaluatorOutputT). Evaluator runs once at the end, not per iteration. Null on legacy/fallback runs.
+  finalEvaluation   Json?
   createdAt         DateTime @default(now())
   completedAt       DateTime
 
@@ -59,8 +55,11 @@ model Iteration {
   analyzerOutput  Json
   criticOutput    Json
   improverOutput  Json
-  evaluatorOutput Json
-  overallScore    Int // denormalized from evaluatorOutput.scores.overall for cheap querying
+  // Per-iteration verdict — set only on legacy/fallback iterations. Test-driven runs evaluate once at the end (Run.finalEvaluation).
+  evaluatorOutput Json?
+  overallScore    Int? // from evaluatorOutput.scores.overall; null on test-driven iterations
+  // This iteration's measured pass-rate (0–100); drives termination. Null when the sandbox was unavailable or on legacy runs.
+  testPassRate    Int?
   createdAt       DateTime @default(now())
 
   run Run @relation(fields: [runId], references: [id], onDelete: Cascade)
@@ -92,15 +91,13 @@ model TestResult {
   id           String   @id @default(cuid())
   testCaseId   String
   runId        String // denormalized so listings don't have to join TestCase
-  iterationId  String? // null today; reserved for per-iteration testing later
+  iterationId  String? // iteration that produced this result; null for run-level results from the execute-tests endpoint
   passed       Boolean
   actualOutput String?
   stderr       String?
   exitCode     Int?
   durationMs   Int?
-  // Closed set: 'ok' | 'wrong_answer' | 'timeout' | 'runtime_error' |
-  // 'compile_error' | 'sandbox_error'. Stored as string (not enum) so adding
-  // a new reason doesn't require a migration.
+  // 'ok' | 'wrong_answer' | 'timeout' | 'runtime_error' | 'compile_error' | 'sandbox_error'. String, not enum, so new reasons need no migration.
   errorReason  String?
   createdAt    DateTime @default(now())
 

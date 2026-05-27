@@ -2,20 +2,12 @@ import 'dotenv/config';
 import { Sandbox } from '@vercel/sandbox';
 import { env } from '../config/env.js';
 
-// One-time setup script.
+// One-time setup script. Boots a fresh `node24` sandbox, installs g++, verifies
+// it on a hello-world, then snapshots the VM. The printed snapshotId is what
+// runner.ts uses for every C++ run (g++ preinstalled ⇒ cold start ~1–3s, not 30–60s).
 //
-// Boots a fresh `node24` sandbox, installs g++ via dnf, verifies the
-// compiler works on a tiny hello-world, then snapshots the VM. The returned
-// snapshotId is what `runner.ts` uses for every future C++ run — fresh VM,
-// but with g++ already on PATH, so cold start drops from ~30–60s back to
-// the normal ~1–3s.
-//
-// Run once, copy the printed snapshot ID into .env as:
-//   VERCEL_CPP_SNAPSHOT_ID=snap_xxxxxxxx
-//
-// Re-run only if you need to refresh the toolchain (e.g. switch to a newer
-// g++, add boost, etc). Old snapshots can be deleted via the Vercel dashboard
-// or `Snapshot.get(id).delete()`.
+// Run once, copy the printed ID into .env as VERCEL_CPP_SNAPSHOT_ID=snap_xxxx.
+// Re-run only to refresh the toolchain.
 
 async function main() {
     if (!env.VERCEL_TOKEN || !env.VERCEL_TEAM_ID || !env.VERCEL_PROJECT_ID) {

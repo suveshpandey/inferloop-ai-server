@@ -1,16 +1,9 @@
-// Closed-set vocabulary so the UI and DB don't have to parse SDK-specific
-// strings. New reasons get added here and to the dispatcher in runner.ts.
-//
-// - 'ok'             — program exited 0 within the time limit.
-// - 'timeout'        — wall-clock execution exceeded `timeoutMs`; the sandbox
-//                      was aborted. May still have partial stdout.
-// - 'runtime_error'  — program exited with a non-zero code (uncaught
-//                      exception, segfault, divide-by-zero, etc).
-// - 'compile_error'  — reserved for C++ (compile step fails before execute).
-//                      Never returned for Python.
-// - 'sandbox_error'  — infrastructure failure (Vercel API down, missing
-//                      runtime, etc). Distinct from program errors so the
-//                      caller can decide whether to retry vs. fail the test.
+// Closed-set vocabulary so the UI and DB don't parse SDK-specific strings.
+// - 'ok'            — exited 0 within the time limit.
+// - 'timeout'       — exceeded `timeoutMs`; sandbox aborted (may have partial stdout).
+// - 'runtime_error' — non-zero exit (uncaught exception, segfault, etc).
+// - 'compile_error' — C++ compile step failed (never for Python).
+// - 'sandbox_error' — infra failure (Vercel API down, etc), distinct from program errors.
 export type ErrorReason =
     | 'ok'
     | 'timeout'
