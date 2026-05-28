@@ -1,4 +1,4 @@
-import { chatJSON } from '../llm/index.js';
+import { chatJSONValidated } from '../llm/index.js';
 import {
     CriticOutput,
     type CriticOutputT,
@@ -79,14 +79,10 @@ export async function critique(
     problemStatement: string,
     findings: AnalyzerOutputT,
 ): Promise<CriticOutputT> {
-    const raw = await chatJSON<unknown>(
+    return chatJSONValidated(
         SYSTEM_PROMPT,
         buildUserPrompt(code, language, problemStatement, findings),
+        CriticOutput,
+        'Critic',
     );
-    const parsed = CriticOutput.safeParse(raw);
-    if (!parsed.success) {
-        console.error('Critic raw response:', JSON.stringify(raw, null, 2));
-        throw parsed.error;
-    }
-    return parsed.data;
 }

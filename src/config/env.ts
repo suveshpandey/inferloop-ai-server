@@ -18,5 +18,5 @@ export const env = {
     VERCEL_CPP_SNAPSHOT_ID: process.env.VERCEL_CPP_SNAPSHOT_ID || '',
     SANDBOX_TIMEOUT_MS:    Number(process.env.SANDBOX_TIMEOUT_MS)    || 5_000,
     SANDBOX_MAX_OUTPUT_KB: Number(process.env.SANDBOX_MAX_OUTPUT_KB) || 64,
-    MAX_GENERATED_CASES:   Number(process.env.MAX_GENERATED_CASES)   || 8,
+    MAX_GENERATED_CASES:   Number(process.env.MAX_GENERATED_CASES)   || 6,
 }

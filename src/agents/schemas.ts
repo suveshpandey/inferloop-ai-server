@@ -104,18 +104,16 @@ export const FailedCase = z.object({
 export type FailedCaseT = z.infer<typeof FailedCase>;
 
 
-// Test category, with common LLM aliases coerced to the canonical set.
+// Test category, with common LLM aliases coerced to the canonical set. There's
+// no 'stress' category — large/constraint-boundary inputs can't be written out
+// fully, so anything stress-ish collapses to 'edge'.
 const TestCategorySchema = z.preprocess((value) => {
     if (typeof value !== 'string') return value;
     const normalized = value.trim().toLowerCase();
-    if (normalized === 'example') return 'sample';
-    if (normalized === 'basic') return 'sample';
-    if (normalized === 'boundary') return 'edge';
-    if (normalized === 'corner') return 'edge';
-    if (normalized === 'large') return 'stress';
-    if (normalized === 'performance') return 'stress';
+    if (normalized === 'example' || normalized === 'basic') return 'sample';
+    if (['boundary', 'corner', 'stress', 'large', 'performance'].includes(normalized)) return 'edge';
     return normalized;
-}, z.enum(['sample', 'edge', 'stress']));
+}, z.enum(['sample', 'edge']));
 
 // A generated test case. No `source` field by design — the repo stamps
 // `source: 'generated'` on persist, keeping the agent unaware of storage.

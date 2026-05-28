@@ -1,4 +1,4 @@
-import { chatJSON } from '../llm/index.js';
+import { chatJSONValidated } from '../llm/index.js';
 import {
     ImproverOutput,
     type ImproverOutputT,
@@ -124,14 +124,10 @@ export async function improve(
     reviewed: CriticOutputT,
     failedCases: FailedCaseT[] = [],
 ): Promise<ImproverOutputT> {
-    const raw = await chatJSON<unknown>(
+    return chatJSONValidated(
         SYSTEM_PROMPT,
         buildUserPrompt(code, language, problemStatement, reviewed, failedCases),
+        ImproverOutput,
+        'Improver',
     );
-    const parsed = ImproverOutput.safeParse(raw);
-    if (!parsed.success) {
-        console.error('Improver raw response:', JSON.stringify(raw, null, 2));
-        throw parsed.error;
-    }
-    return parsed.data;
 }

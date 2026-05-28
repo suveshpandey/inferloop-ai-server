@@ -3,6 +3,7 @@
 // To add one: write `./x.ts` exporting `chatJSON<T>(system, user)`, add a case
 // below, flip `LLM_PROVIDER=x`.
 
+import { z } from "zod";
 import { env } from "../config/env.js";
 import { chatJSON as ollamaChatJSON } from "./ollama.js";
 import { chatJSON as geminiChatJSON } from "./gemini.js";
@@ -20,3 +21,29 @@ function pickProvider(): ChatJSONFn {
 }
 
 export const chatJSON: ChatJSONFn = pickProvider();
+
+// chatJSON + Zod validation with bounded retries. Small models occasionally
+// emit structurally wrong JSON (wrong enum value, missing/extra field); since
+// temperature > 0, a re-roll usually fixes it. Throws after the last attempt —
+// callers decide how to handle (the pipeline degrades gracefully).
+const MAX_PARSE_ATTEMPTS = 3;
+
+export async function chatJSONValidated<S extends z.ZodTypeAny>(
+    systemPrompt: string,
+    userPrompt: string,
+    schema: S,
+    label: string,
+): Promise<z.infer<S>> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= MAX_PARSE_ATTEMPTS; attempt++) {
+        const raw = await chatJSON<unknown>(systemPrompt, userPrompt);
+        const parsed = schema.safeParse(raw);
+        if (parsed.success) return parsed.data;
+        lastError = parsed.error;
+        console.warn(`${label} attempt ${attempt}/${MAX_PARSE_ATTEMPTS} failed validation; retrying…`);
+        if (attempt === MAX_PARSE_ATTEMPTS) {
+            console.error(`${label} final raw response:`, JSON.stringify(raw, null, 2));
+        }
+    }
+    throw lastError;
+}
