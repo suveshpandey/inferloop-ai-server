@@ -3,13 +3,10 @@
 // `executeTestsForRun` adds DB load + persistence for the execute-tests route.
 
 import { prisma } from '../db/client.js';
-import { runCode } from '../sandbox/runner.js';
+import { runCodeBatch } from '../sandbox/runner.js';
 import { saveTestResults, type TestResultRow } from '../db/test-cases.js';
 import { env } from '../config/env.js';
 import type { RunResult, SupportedLanguage } from '../sandbox/types.js';
-
-// Cap on concurrent sandbox calls — Vercel rate-limits sandbox creation.
-const MAX_PARALLEL = 3;
 
 // A case to run before it's persisted (no DB id yet).
 export type InMemoryCase = {
@@ -65,24 +62,6 @@ function classify(exec: RunResult, expectedOutput: string): { passed: boolean; e
     return { passed, errorReason };
 }
 
-// Run `fn` over `items` with at most `limit` in flight. Preserves order.
-async function mapWithConcurrency<T, R>(
-    items: T[],
-    limit: number,
-    fn: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-    const results = new Array<R>(items.length);
-    let next = 0;
-    async function worker() {
-        while (next < items.length) {
-            const idx = next++;
-            results[idx] = await fn(items[idx]!, idx);
-        }
-    }
-    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-    return results;
-}
-
 /**
  * Pure core: run `cases` against `code` in the sandbox and score them. No DB.
  * `testPassRate` is null only when there are no cases. Throws on infra failure.
@@ -91,16 +70,43 @@ export async function runTestsInMemory(
     cases: InMemoryCase[],
     code: string,
     language: SupportedLanguage,
+    hooks?: {
+        onCaseStart?:    (caseIndex: number, name: string) => void;
+        onCaseComplete?: (result: InMemoryResult) => void;
+    },
 ): Promise<InMemoryTestRun> {
     if (cases.length === 0) return { results: [], testPassRate: null };
 
-    const results = await mapWithConcurrency(cases, MAX_PARALLEL, async (c, i): Promise<InMemoryResult> => {
-        const exec = await runCode({
-            language,
-            code,
-            stdin:     c.input,
-            timeoutMs: env.SANDBOX_TIMEOUT_MS,
-        });
+    // ONE sandbox, ONE compile (C++), N execs — instead of N sandboxes. Saves
+    // ~6x sandbox creations + storage and avoids hitting Vercel's rate limit.
+    const execResults = await runCodeBatch({
+        language,
+        code,
+        inputs:    cases.map((c) => c.input),
+        timeoutMs: env.SANDBOX_TIMEOUT_MS,
+        onCaseStart: hooks?.onCaseStart
+            ? (i) => hooks.onCaseStart!(i, cases[i]!.name)
+            : undefined,
+        onCaseComplete: hooks?.onCaseComplete
+            ? (i, exec) => {
+                const c = cases[i]!;
+                const { passed, errorReason } = classify(exec, c.expectedOutput);
+                hooks.onCaseComplete!({
+                    caseIndex:    i,
+                    name:         c.name,
+                    passed,
+                    actualOutput: exec.stdout,
+                    stderr:       exec.stderr,
+                    exitCode:     exec.exitCode,
+                    durationMs:   exec.durationMs,
+                    errorReason,
+                });
+            }
+            : undefined,
+    });
+
+    const results: InMemoryResult[] = execResults.map((exec, i) => {
+        const c = cases[i]!;
         const { passed, errorReason } = classify(exec, c.expectedOutput);
         return {
             caseIndex:    i,

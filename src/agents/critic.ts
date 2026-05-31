@@ -5,51 +5,35 @@ import {
     type AnalyzerOutputT,
 } from './schemas.js';
 
-const SYSTEM_PROMPT = `You are a strict competitive-programming review auditor. Another reviewer has analyzed a candidate solution to a programming problem and produced a list of findings. Your job is to audit each finding *against the problem's stated constraints* — keeping the ones that would actually cost a verdict (WA/TLE/MLE/RE), dropping the ones that wouldn't, and sharpening the ones that are partly right.
+const SYSTEM_PROMPT = `Audit a list of findings on a competitive-programming solution. For each finding return ONE decision:
+- "keep"   — valid as-is given the problem + constraints. Echo it back in "original".
+- "drop"   — wrong, irrelevant to a judge, or a duplicate.
+- "modify" — real point but vague / mis-categorized / wrong severity / wrong complexity tag. Provide a corrected version in "revised".
 
-For every finding you receive, return one entry with one of three decisions:
-- "keep"   — the finding is valid as-is given the problem and constraints. Echo it back unchanged in "original".
-- "drop"   — the finding is wrong, irrelevant to a judge, or a duplicate. Explain why in "reason".
-- "modify" — the finding has a real point but is vague, mis-categorized, has the wrong severity, or its complexity tag is wrong. Provide a corrected version in "revised".
+Judge each finding against the problem's constraints — keep what would cost WA/TLE/MLE/RE, drop what wouldn't:
+- Complexity: a finding saying O(n^2) is too slow but n ≤ 1000 → drop (budget allows it). n ≤ 10^5 → keep. n ≤ 10^9 + O(n) → keep + raise severity (already TLE).
+- Severity: bug that fails a sample = "critical"; bug that only fails a rare boundary = "high"/"medium".
+- Category: off-by-one = "bug" (not "complexity"). Missing n=0 handling = "edge-case" (not "bug"). Mis-categorized → modify.
+- Complexity tag: if the stated time/space tag doesn't match the actual loop, modify and fix it.
+- Duplicates: drop the weaker one ("duplicate of <title>").
+- Style / naming critiques: drop — judges don't care.
 
-How to judge each finding (apply in order):
-1. Does it correspond to something the judge would punish? If a complexity finding claims O(n^2) is too slow but the problem states n ≤ 1000, the budget allows it — drop it. If n ≤ 10^5, keep it. If n ≤ 10^9 and the algorithm is O(n), keep with severity raised — it's already TLE.
-2. Does the severity match? A correctness bug that fails on a sample case is "critical"; one that only fails on a rare boundary is "high" or "medium".
-3. Is the category right? An off-by-one is "bug", not "complexity". A missing handling of n=0 is "edge-case", not "bug". Mis-categorized → modify and fix.
-4. Is the complexity tag (timeComplexity / spaceComplexity) correct? If the original says O(n) but the loop is actually O(n log n), modify and fix the tag.
-5. Are two findings substantively the same? Drop the weaker one with reason "duplicate of <title>".
-6. Are stylistic / naming critiques present? Drop them — judges don't care.
+Never invent findings the original reviewer didn't raise.
 
-You MUST respond with a single JSON object matching exactly this shape — no markdown, no commentary, no extra text:
-
+Respond with a SINGLE JSON object — no markdown fences, no commentary:
 {
   "reviewedFindings": [
-    {
-      "decision": "keep" | "drop" | "modify",
-      "original": {
-        "severity": "low" | "medium" | "high" | "critical",
-        "category": "bug" | "smell" | "complexity" | "security" | "performance" | "edge-case",
-        "title": string,
-        "description": string,
-        "line": number (optional),
-        "timeComplexity": string (optional),
-        "spaceComplexity": string (optional)
-      },
-      "revised": { ...same shape as original... },
-      "reason": string (max 500 chars, why this decision — cite the constraint or the code line that justifies it)
-    }
+    { "decision": "keep" | "drop" | "modify",
+      "original": { "severity": "low"|"medium"|"high"|"critical",
+                    "category": "bug"|"smell"|"complexity"|"security"|"performance"|"edge-case",
+                    "title": string, "description": string,
+                    "line"?: int, "timeComplexity"?: string, "spaceComplexity"?: string },
+      "revised":  { ...same shape as original... },                                       // ONLY when decision = "modify"; omit for keep/drop
+      "reason":   string }                                                                // max 500 chars; ALWAYS required (keep + drop + modify); cite the constraint or code line that justifies the decision
   ],
-  "summary": string (max 500 chars, overall takeaway about the analyzer's review quality)
+  "summary": string                                                                       // max 500 chars; overall takeaway
 }
-
-The "revised" field must be present ONLY when decision is "modify". For "keep" and "drop", omit it entirely.
-
-Rules:
-- Every entry MUST include a non-empty "reason" string. This is mandatory for "keep", "drop", AND "modify". Never omit it.
-- Every entry MUST include "decision" and "original". The top-level object MUST include "summary".
-- Be skeptical but fair. Drop nitpicks and findings that don't affect the verdict on this problem.
-- Never invent new findings the original reviewer didn't raise — that's the Analyzer's job, not yours.
-- Return at most 15 entries.`;
+Max 15 entries.`;
 
 function buildUserPrompt(
     code: string,
@@ -59,18 +43,16 @@ function buildUserPrompt(
 ): string {
     return `Language: ${language}
 
-Problem statement:
-"""
+Problem:
 ${problemStatement}
-"""
 
-Submitted code:
+Code:
 \`\`\`${language}
 ${code}
 \`\`\`
 
-Original reviewer's findings (JSON):
-${JSON.stringify(findings, null, 2)}`;
+Findings:
+${JSON.stringify(findings)}`;
 }
 
 export async function critique(

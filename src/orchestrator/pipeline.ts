@@ -46,14 +46,18 @@ export type LoopResultT = {
 };
 
 export type ProgressEvent =
-    | { type: 'loop_start';         maxIterations: number }
-    | { type: 'tests_generated';    count: number }
-    | { type: 'iteration_start';    iteration: number }
-    | { type: 'stage_start';        iteration: number; stage: Stage }
-    | { type: 'stage_complete';     iteration: number; stage: Stage; result: unknown }
-    | { type: 'iteration_complete'; iteration: number; result: IterationResultT }
-    | { type: 'final_evaluation';   result: EvaluatorOutputT }
-    | { type: 'loop_complete';      result: LoopResultT };
+    | { type: 'loop_start';                maxIterations: number }
+    | { type: 'tests_generated';           count: number; cases: TestCaseSchemaT[] }
+    | { type: 'iteration_start';           iteration: number }
+    | { type: 'stage_start';               iteration: number; stage: Stage }
+    | { type: 'stage_complete';            iteration: number; stage: Stage; result: unknown }
+    | { type: 'tests_running';             iteration: number }
+    | { type: 'test_case_start';           iteration: number; caseIndex: number; name: string }
+    | { type: 'test_case_complete';        iteration: number; result: InMemoryResult }
+    | { type: 'iteration_complete';        iteration: number; result: IterationResultT }
+    | { type: 'final_evaluation_starting' }
+    | { type: 'final_evaluation';          result: EvaluatorOutputT }
+    | { type: 'loop_complete';             result: LoopResultT };
 
 export type OnProgress = (event: ProgressEvent) => void;
 
@@ -103,7 +107,7 @@ export async function reviewLoop(
             console.error('test generation failed; continuing without tests:', err);
         }
         testsAvailable = cases.length > 0;
-        onProgress?.({ type: 'tests_generated', count: cases.length });
+        onProgress?.({ type: 'tests_generated', count: cases.length, cases });
     }
     const inMemCases: InMemoryCase[] = cases.map((c) => ({
         name: c.name, input: c.input, expectedOutput: c.expectedOutput,
@@ -137,8 +141,14 @@ export async function reviewLoop(
         let passRate: number | null = null;
         let results:  InMemoryResult[] = [];
         if (testsAvailable) {
+            onProgress?.({ type: 'tests_running', iteration: i });
             try {
-                const run = await runTestsInMemory(inMemCases, improvedCode, language as SupportedLanguage);
+                const run = await runTestsInMemory(inMemCases, improvedCode, language as SupportedLanguage, {
+                    onCaseStart: (caseIndex, name) =>
+                        onProgress?.({ type: 'test_case_start', iteration: i, caseIndex, name }),
+                    onCaseComplete: (result) =>
+                        onProgress?.({ type: 'test_case_complete', iteration: i, result }),
+                });
                 passRate = run.testPassRate;
                 results  = run.results;
                 prevFailures = toFailedCases(results, cases);
@@ -185,6 +195,7 @@ export async function reviewLoop(
 
     // Final Evaluator pass (once). Best-effort — a failure just leaves it null.
     let finalEvaluation: EvaluatorOutputT | null = null;
+    onProgress?.({ type: 'final_evaluation_starting' });
     try {
         const reviewedForEval = best?.reviewed ?? lastIter.reviewed;
         const testResultsArg = best !== null

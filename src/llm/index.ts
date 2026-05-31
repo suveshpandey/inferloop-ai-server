@@ -7,6 +7,7 @@ import { z } from "zod";
 import { env } from "../config/env.js";
 import { chatJSON as ollamaChatJSON } from "./ollama.js";
 import { chatJSON as geminiChatJSON } from "./gemini.js";
+import { chatJSON as euriChatJSON   } from "./euri.js";
 
 type ChatJSONFn = <T>(systemPrompt: string, userPrompt: string) => Promise<T>;
 
@@ -14,6 +15,7 @@ function pickProvider(): ChatJSONFn {
     switch (env.LLM_PROVIDER) {
         case 'gemini': return geminiChatJSON;
         case 'ollama': return ollamaChatJSON;
+        case 'euri':   return euriChatJSON;
         default:
             // Fail loud at boot rather than silently routing to a wrong backend.
             throw new Error(`Unknown LLM_PROVIDER: ${env.LLM_PROVIDER}`);
@@ -36,13 +38,22 @@ export async function chatJSONValidated<S extends z.ZodTypeAny>(
 ): Promise<z.infer<S>> {
     let lastError: unknown;
     for (let attempt = 1; attempt <= MAX_PARSE_ATTEMPTS; attempt++) {
-        const raw = await chatJSON<unknown>(systemPrompt, userPrompt);
-        const parsed = schema.safeParse(raw);
-        if (parsed.success) return parsed.data;
-        lastError = parsed.error;
-        console.warn(`${label} attempt ${attempt}/${MAX_PARSE_ATTEMPTS} failed validation; retrying…`);
-        if (attempt === MAX_PARSE_ATTEMPTS) {
-            console.error(`${label} final raw response:`, JSON.stringify(raw, null, 2));
+        try {
+            const raw = await chatJSON<unknown>(systemPrompt, userPrompt);
+            const parsed = schema.safeParse(raw);
+            if (parsed.success) return parsed.data;
+            lastError = parsed.error;
+            console.warn(`${label} attempt ${attempt}/${MAX_PARSE_ATTEMPTS} failed shape validation; retrying…`);
+            if (attempt === MAX_PARSE_ATTEMPTS) {
+                console.error(`${label} final raw response:`, JSON.stringify(raw, null, 2));
+            }
+        } catch (err) {
+            // Also retry on unparseable JSON / transient network errors — the
+            // previous version only retried Zod shape failures, so a single
+            // malformed-JSON response from the model killed the whole loop.
+            lastError = err;
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(`${label} attempt ${attempt}/${MAX_PARSE_ATTEMPTS} failed (${msg}); retrying…`);
         }
     }
     throw lastError;
