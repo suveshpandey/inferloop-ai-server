@@ -2,7 +2,7 @@ import { chatJSONValidated } from '../llm/index.js';
 import { TestGeneratorOutput, type TestGeneratorOutputT } from './schemas.js';
 import { env } from '../config/env.js';
 
-const SYSTEM_PROMPT = `Design test cases that PROBE a candidate competitive-programming solution (Python/C++) — not solve the problem. Find inputs that separate a correct solution from common wrong ones.
+const SYSTEM_PROMPT = `Design test cases that PROBE a candidate DSA / competitive-programming solution (Python/C++) — not solve the problem. Find inputs that separate a correct solution from common wrong ones.
 
 Approach: extract the input format + constraints; think about failure modes (off-by-one, integer overflow — probe with large element VALUES like 10^9 using a few elements, unhandled duplicates, missing empty/single-element case, negatives or zero where allowed, any boundary the statement highlights); compute the correct expectedOutput yourself for each input — get it right.
 

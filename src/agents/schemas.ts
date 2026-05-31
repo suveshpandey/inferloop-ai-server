@@ -7,8 +7,8 @@ const SeveritySchema = z.preprocess((value) => {
     return normalized;
 }, z.enum(['low', 'medium', 'high', 'critical']));
 
-// CP-oriented categories. Style critiques are out of scope here — competitive
-// programming submissions don't get judged on whitespace. We coerce a few
+// DSA / CP-oriented categories. Style critiques are out of scope here — algorithm
+// submissions don't get judged on whitespace. We coerce a few
 // common LLM aliases (and any legacy 'style' the model still emits from its
 // training data) into the canonical set so the parse doesn't fail.
 const CategorySchema = z.preprocess((value) => {
@@ -76,7 +76,7 @@ export const EvaluatorScores = z.object({
     stability:      z.number().int().min(0).max(100),
     readability:    z.number().int().min(0).max(100),
     overall:        z.number().int().min(0).max(100),
-    // CP-specific signals. Optional — populated only when the problem/rewrite is algorithmic.
+    // DSA / CP-specific signals. Optional — populated only when the problem/rewrite is algorithmic.
     timeComplexityImproved: z.number().int().min(0).max(100).optional(),
     edgeCaseCoverage:       z.number().int().min(0).max(100).optional(),
     // Measured sandbox pass-rate, echoed back from ground truth. Optional — omitted when the sandbox didn't run.

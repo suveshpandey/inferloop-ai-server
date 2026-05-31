@@ -13,7 +13,7 @@ export type EvaluatorTestResults = {
     failedCases: FailedCaseT[];
 };
 
-const SYSTEM_PROMPT = `Judge whether a rewrite of a competitive-programming solution is actually an improvement on the specific problem. Inputs: problem statement (constraints matter), original code, improved code, the auditor's reviewed findings ("keep"/"modify" = issues the rewrite was supposed to fix; "drop" = should have been left alone), optionally measured sandbox test results (passRate + still-failing cases).
+const SYSTEM_PROMPT = `Judge whether a rewrite of a DSA / competitive-programming solution is actually an improvement on the specific problem. Inputs: problem statement (constraints matter), original code, improved code, the auditor's reviewed findings ("keep"/"modify" = issues the rewrite was supposed to fix; "drop" = should have been left alone), optionally measured sandbox test results (passRate + still-failing cases).
 
 VERDICT: "improved" (meaningfully better) | "unchanged" (no real difference) | "regressed" (worse — broke something, regressed complexity, or hurt readability).
 

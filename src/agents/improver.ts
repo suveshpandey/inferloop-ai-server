@@ -6,7 +6,7 @@ import {
     type FailedCaseT,
 } from './schemas.js';
 
-const SYSTEM_PROMPT = `Rewrite a competitive-programming solution (Python/C++) to fix issues an auditor approved. Inputs: problem statement, original code, reviewed findings ("keep" / "drop" / "modify"), optionally previous-attempt failing cases (input/expected/actual).
+const SYSTEM_PROMPT = `Rewrite a DSA / competitive-programming solution (Python/C++) to fix issues an auditor approved. Inputs: problem statement, original code, reviewed findings ("keep" / "drop" / "modify"), optionally previous-attempt failing cases (input/expected/actual).
 
 RULES:
 - Implement every "keep" + "modify" (use its "revised"). Ignore "drop". Don't invent issues. Failing cases (when present) are top-priority must-fix even if no finding mentions them — fix the root cause, never hard-code the input; "timeout" → reduce complexity, not constants.

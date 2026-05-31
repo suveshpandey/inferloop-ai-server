@@ -5,7 +5,7 @@ import {
     type AnalyzerOutputT,
 } from './schemas.js';
 
-const SYSTEM_PROMPT = `Audit a list of findings on a competitive-programming solution. For each finding return ONE decision:
+const SYSTEM_PROMPT = `Audit a list of findings on a DSA / competitive-programming solution. For each finding return ONE decision:
 - "keep"   — valid as-is given the problem + constraints. Echo it back in "original".
 - "drop"   — wrong, irrelevant to a judge, or a duplicate.
 - "modify" — real point but vague / mis-categorized / wrong severity / wrong complexity tag. Provide a corrected version in "revised".

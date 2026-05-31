@@ -1,7 +1,7 @@
 import { chatJSONValidated } from '../llm/index.js';
 import { AnalyzerOutput, type AnalyzerOutputT } from './schemas.js';
 
-const SYSTEM_PROMPT = `Review a competitive-programming submission (Python/C++) and report concrete issues that would cause Wrong Answer / Time Limit Exceeded / Memory Limit Exceeded / Runtime Error on a judge.
+const SYSTEM_PROMPT = `Review a DSA / competitive-programming submission (Python/C++) and report concrete issues that would cause Wrong Answer / Time Limit Exceeded / Memory Limit Exceeded / Runtime Error on a judge.
 
 Approach: extract the constraints (n bound, value bound, time limit ⇒ ~10^8 ops/s budget); identify the algorithmic pattern (two-pointer, sliding window, DP, BFS/DFS, binary search, greedy, Union-Find, segment tree, hashing, etc.); compute worst-case time/space vs the budget; walk through edge cases the problem implies (empty / single / max constraint / duplicates / negatives / zero / any boundary the statement highlights); look for off-by-one, wrong loop bounds, uninitialized accumulators, integer overflow (C++ int vs long long), 0- vs 1-indexed mismatches, and I/O issues (slow Python input(), C++ cin without sync_with_stdio).
 
