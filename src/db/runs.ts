@@ -47,36 +47,74 @@ export async function saveCompletedRun(params: {
     loopResult:       LoopResultT;
 }) {
     const { userId, code, language, problemStatement, maxIterations, loopResult } = params;
-    const { iterations, finalCode, terminationReason } = loopResult;
+    const { iterations, finalCode, terminationReason, testCases, testPassRate, finalResults, finalEvaluation } = loopResult;
 
-    const lastIter   = iterations[iterations.length - 1];
-    const finalScore = lastIter?.evaluation.scores.overall ?? null;
+    const finalScore = finalEvaluation?.scores.overall ?? null;
 
-    return prisma.run.create({
-        data: {
-            userId,
-            title:             deriveTitle(code, language, problemStatement),
-            language,
-            problemStatement,
-            code,
-            finalCode,
-            maxIterations,
-            iterationsRun:     iterations.length,
-            terminationReason,
-            finalScore,
-            completedAt:       new Date(),
-            iterations: {
-                create: iterations.map((it) => ({
-                    iterationIndex:  it.iteration,
-                    inputCode:       it.inputCode,
-                    analyzerOutput:  it.findings,
-                    criticOutput:    it.reviewed,
-                    improverOutput:  it.improved,
-                    evaluatorOutput: it.evaluation,
-                    overallScore:    it.evaluation.scores.overall,
-                })),
+    // One transaction: Run + Iterations, then the generated cases and the final
+    // per-case results (only the best iteration's — M rows, not N×M).
+    return prisma.$transaction(async (tx) => {
+        const run = await tx.run.create({
+            data: {
+                userId,
+                title:             deriveTitle(code, language, problemStatement),
+                language,
+                problemStatement,
+                code,
+                finalCode,
+                maxIterations,
+                iterationsRun:     iterations.length,
+                terminationReason,
+                finalScore,
+                testPassRate,
+                ...(finalEvaluation ? { finalEvaluation } : {}),
+                completedAt:       new Date(),
+                iterations: {
+                    create: iterations.map((it) => ({
+                        iterationIndex: it.iteration,
+                        inputCode:      it.inputCode,
+                        analyzerOutput: it.findings,
+                        criticOutput:   it.reviewed,
+                        improverOutput: it.improved,
+                        // evaluatorOutput/overallScore stay null — Evaluator runs once at the end.
+                        testPassRate:   it.testPassRate,
+                    })),
+                },
             },
-        },
+        });
+
+        if (testCases.length > 0) {
+            // Create cases individually so final results can map to their ids
+            // (createMany returns none). Order matches finalResults' caseIndex.
+            const createdCases: { id: string }[] = [];
+            for (const c of testCases) {
+                createdCases.push(await tx.testCase.create({
+                    data: {
+                        runId:          run.id,
+                        source:         'generated',
+                        name:           c.name,
+                        input:          c.input,
+                        expectedOutput: c.expectedOutput,
+                    },
+                }));
+            }
+            if (finalResults.length > 0) {
+                await tx.testResult.createMany({
+                    data: finalResults.map((r) => ({
+                        runId:        run.id,
+                        testCaseId:   createdCases[r.caseIndex]!.id,
+                        passed:       r.passed,
+                        actualOutput: r.actualOutput,
+                        stderr:       r.stderr,
+                        exitCode:     r.exitCode,
+                        durationMs:   r.durationMs,
+                        errorReason:  r.errorReason,
+                    })),
+                });
+            }
+        }
+
+        return run;
     });
 }
 
@@ -123,7 +161,9 @@ export async function getRunForUser(userId: string, runId: string) {
     const run = await prisma.run.findFirst({
         where: { id: runId, userId },
         include: {
-            iterations: { orderBy: { iterationIndex: 'asc' } },
+            iterations:  { orderBy: { iterationIndex: 'asc' } },
+            testCases:   { orderBy: { createdAt: 'asc' } },
+            testResults: true,
         },
     });
     return run;
