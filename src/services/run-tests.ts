@@ -4,7 +4,7 @@
 
 import { prisma } from '../db/client.js';
 import { runCodeBatch } from '../sandbox/runner.js';
-import { saveTestResults, type TestResultRow } from '../db/test-cases.js';
+import { saveTestResults, savePartialTestResults, type TestResultRow } from '../db/test-cases.js';
 import { env } from '../config/env.js';
 import type { RunResult, SupportedLanguage } from '../sandbox/types.js';
 
@@ -166,5 +166,80 @@ export async function executeTestsForRun(
     }));
 
     await saveTestResults(runId, results, testPassRate);
+    return { results, testPassRate };
+}
+
+/**
+ * Streaming variant of executeTestsForRun. Fires `onCaseStart`/`onCaseComplete`
+ * for each case as it runs through the sandbox so the route can flush SSE
+ * events. Supports running a SUBSET of cases via `opts.caseIds` (one or many)
+ * — used by the per-row "Run this case" button. The other cases' previous
+ * results are preserved and the pass-rate is recomputed from all of them.
+ */
+export async function executeTestsForRunStream(
+    runId: string,
+    userId: string,
+    opts: {
+        caseIds?: string[];
+        onCaseStart?:    (caseId: string, name: string) => void;
+        onCaseComplete?: (caseId: string, result: ExecutedResult) => void;
+    },
+): Promise<ExecuteTestsResult | null> {
+    const run = await prisma.run.findFirst({
+        where:  { id: runId, userId },
+        select: { id: true, finalCode: true, language: true },
+    });
+    if (!run) return null;
+
+    const wantedIds = opts.caseIds && opts.caseIds.length > 0 ? opts.caseIds : undefined;
+    const cases = await prisma.testCase.findMany({
+        where:   wantedIds ? { runId, id: { in: wantedIds } } : { runId },
+        orderBy: { createdAt: 'asc' },
+    });
+    if (cases.length === 0) return { results: [], testPassRate: null };
+
+    const inMemCases: InMemoryCase[] = cases.map((c) => ({
+        name: c.name, input: c.input, expectedOutput: c.expectedOutput,
+    }));
+
+    const { results: memResults } = await runTestsInMemory(
+        inMemCases,
+        run.finalCode,
+        run.language as SupportedLanguage,
+        {
+            onCaseStart: (caseIndex) => {
+                const c = cases[caseIndex]!;
+                opts.onCaseStart?.(c.id, c.name);
+            },
+            onCaseComplete: (r) => {
+                const c = cases[r.caseIndex]!;
+                opts.onCaseComplete?.(c.id, {
+                    testCaseId:   c.id,
+                    name:         r.name,
+                    passed:       r.passed,
+                    actualOutput: r.actualOutput,
+                    stderr:       r.stderr,
+                    exitCode:     r.exitCode,
+                    durationMs:   r.durationMs,
+                    errorReason:  r.errorReason,
+                });
+            },
+        },
+    );
+
+    const results: ExecutedResult[] = memResults.map((r) => ({
+        testCaseId:   cases[r.caseIndex]!.id,
+        name:         r.name,
+        passed:       r.passed,
+        actualOutput: r.actualOutput,
+        stderr:       r.stderr,
+        exitCode:     r.exitCode,
+        durationMs:   r.durationMs,
+        errorReason:  r.errorReason,
+    }));
+
+    // Partial replace + recompute — works for both "run all" (replaces every
+    // case) and "run one" (replaces just that case, keeps the rest).
+    const testPassRate = await savePartialTestResults(runId, results);
     return { results, testPassRate };
 }

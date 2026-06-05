@@ -120,6 +120,43 @@ export async function bulkCreateGenerated(
     });
 }
 
+// Replace just the listed cases' results and recompute pass-rate from ALL
+// stored results in one transaction. Use this for per-case reruns where the
+// other cases' previous results must stay intact.
+export async function savePartialTestResults(
+    runId: string,
+    results: TestResultRow[],
+): Promise<number | null> {
+    return prisma.$transaction(async (tx) => {
+        if (results.length > 0) {
+            await tx.testResult.deleteMany({
+                where: { runId, testCaseId: { in: results.map((r) => r.testCaseId) } },
+            });
+            await tx.testResult.createMany({
+                data: results.map((r) => ({
+                    runId,
+                    testCaseId:   r.testCaseId,
+                    passed:       r.passed,
+                    actualOutput: r.actualOutput,
+                    stderr:       r.stderr,
+                    exitCode:     r.exitCode,
+                    durationMs:   r.durationMs,
+                    errorReason:  r.errorReason,
+                })),
+            });
+        }
+        const all = await tx.testResult.findMany({
+            where:  { runId },
+            select: { passed: true },
+        });
+        const testPassRate = all.length === 0
+            ? null
+            : Math.round((100 * all.filter((r) => r.passed).length) / all.length);
+        await tx.run.update({ where: { id: runId }, data: { testPassRate } });
+        return testPassRate;
+    });
+}
+
 // Persist results idempotently: wipe prior results, insert new, denormalize
 // pass-rate onto Run — one transaction so listings never see a half-update.
 export async function saveTestResults(
