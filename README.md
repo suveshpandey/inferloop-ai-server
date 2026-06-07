@@ -155,6 +155,7 @@ Server boots at `http://localhost:3001`.
 | `pnpm tsx src/scripts/test-execute-tests.ts` | 2.2 data-layer harness — seeds a throwaway run + cases, asserts pass-rate. |
 | `pnpm tsx src/scripts/test-pipeline-e2e.ts` | End-to-end harness — generate tests → run loop → persist → read back. Live LLM + sandbox. |
 | `pnpm tsx src/scripts/cleanup-sandboxes.ts` | Bulk-delete every sandbox for the team. Reclaims storage + rate-limit headroom after heavy testing. |
+| `pnpm tsx src/scripts/cleanup-snapshots.ts` | List all snapshots and (with `--yes`) delete every one EXCEPT the active `VERCEL_CPP_SNAPSHOT_ID`. Use to clean up orphans left by repeated runs of `build-cpp-snapshot.ts`. Defaults to dry-run. |
 
 ---
 
