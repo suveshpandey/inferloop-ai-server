@@ -65,7 +65,7 @@ async function reserveInBucket(
             count:        updated.count,
             retryAfterMs: Math.max(0, existing.expiresAt.getTime() - now.getTime()),
         };
-    });
+    }, { maxWait: 10_000, timeout: 10_000 });
 }
 
 /** Reserve one hit against a fixed 1-minute UTC window. */
@@ -116,7 +116,7 @@ export async function reserveDayQuota(
             count:        updated.count,
             retryAfterMs: Math.max(0, existing.expiresAt.getTime() - now.getTime()),
         };
-    });
+    }, { maxWait: 10_000, timeout: 10_000 });
 }
 
 /** Delete expired buckets (optional maintenance). */

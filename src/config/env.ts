@@ -13,7 +13,10 @@ export const env = {
     EURI_API_KEY:  process.env.EURI_API_KEY  || '',
     EURI_BASE_URL: process.env.EURI_BASE_URL || 'https://api.euron.one/api/v1/euri',
     EURI_MODEL:    process.env.EURI_MODEL    || 'gpt-5.3-instant',
-    CORS_ORIGIN: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    CORS_ORIGIN: (process.env.CORS_ORIGIN || 'http://localhost:3000')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
     VERCEL_TOKEN:          process.env.VERCEL_TOKEN          || '',
     VERCEL_TEAM_ID:        process.env.VERCEL_TEAM_ID        || '',
     VERCEL_PROJECT_ID:     process.env.VERCEL_PROJECT_ID     || '',
