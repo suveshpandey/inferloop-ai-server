@@ -22,4 +22,11 @@ export const env = {
     SANDBOX_TIMEOUT_MS:    Number(process.env.SANDBOX_TIMEOUT_MS)    || 5_000,
     SANDBOX_MAX_OUTPUT_KB: Number(process.env.SANDBOX_MAX_OUTPUT_KB) || 64,
     MAX_GENERATED_CASES:   Number(process.env.MAX_GENERATED_CASES)   || 6,
+    // Rate limits — review limits apply only when LLM_PROVIDER is gemini/euri.
+    RATE_LIMIT_REVIEW_PER_MIN:   Number(process.env.RATE_LIMIT_REVIEW_PER_MIN)   || 2,
+    RATE_LIMIT_REVIEW_PER_DAY:   Number(process.env.RATE_LIMIT_REVIEW_PER_DAY)   || 5,
+    RATE_LIMIT_EXECUTE_PER_MIN:  Number(process.env.RATE_LIMIT_EXECUTE_PER_MIN)  || 5,
+    RATE_LIMIT_EXECUTE_PER_DAY:  Number(process.env.RATE_LIMIT_EXECUTE_PER_DAY)  || 30,
+    RATE_LIMIT_LOGIN_PER_MIN:    Number(process.env.RATE_LIMIT_LOGIN_PER_MIN)    || 10,
+    RATE_LIMIT_SIGNUP_PER_MIN:   Number(process.env.RATE_LIMIT_SIGNUP_PER_MIN)   || 5,
 }

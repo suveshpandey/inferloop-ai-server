@@ -4,11 +4,12 @@ import { hashPassword, verifyPassword } from "../../auth/password.js";
 import { signAccessToken } from "../../auth/jwt.js";
 import { issueRefreshToken, findValidRefreshToken, revokeRefreshToken } from "../../auth/refresh.js";
 import { requireAuth } from "../../auth/middleware.js";
+import { createIpRateLimiter } from "../../rate-limit/middleware.js";
 
 export const authRouter = Router()
 
 
-authRouter.post('/signup', async (req: Request, res: Response) => {
+authRouter.post('/signup', createIpRateLimiter('signup'), async (req: Request, res: Response) => {
     const { email, password, username } = req.body
     
     if (!email || !password) {
@@ -48,7 +49,7 @@ authRouter.post('/signup', async (req: Request, res: Response) => {
 })
 
 
-authRouter.post('/login', async (req: Request, res: Response) => {
+authRouter.post('/login', createIpRateLimiter('login'), async (req: Request, res: Response) => {
     const { email, password } = req.body ?? {};
 
     if (!email || !password) {
