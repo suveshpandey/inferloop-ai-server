@@ -20,6 +20,8 @@ Judge each finding against the problem's constraints — keep what would cost WA
 
 Never invent findings the original reviewer didn't raise.
 
+BREVITY (required): "summary" MUST be at most 500 characters — one tight paragraph.
+
 Respond with a SINGLE JSON object — no markdown fences, no commentary:
 {
   "reviewedFindings": [

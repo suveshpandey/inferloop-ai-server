@@ -15,6 +15,8 @@ Categories:
 
 Do NOT flag whitespace/naming/style — judges don't care. Do NOT invent issues — every finding must point to something concrete in the code, judged against the problem. If the code is correct and within budget, return an empty findings array and say so in summary.
 
+BREVITY (required): "summary" MUST be at most 500 characters — one tight paragraph. Put detail in finding descriptions, not the summary.
+
 Respond with a SINGLE JSON object — no markdown fences, no commentary:
 {
   "findings": [
@@ -26,7 +28,7 @@ Respond with a SINGLE JSON object — no markdown fences, no commentary:
       "timeComplexity"?:  string,                             // short Big-O like "O(n^2)" — include for runtime findings
       "spaceComplexity"?: string }                            // short Big-O — include for memory findings
   ],
-  "summary": string                                           // max 500 chars; pattern identified + dominant bottleneck or correctness risk
+  "summary": string                                           // max 500 chars; pattern + dominant bottleneck or correctness risk
 }
 Max 10 findings, ordered by severity (critical first).`;
 

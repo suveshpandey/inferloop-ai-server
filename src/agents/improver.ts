@@ -33,6 +33,8 @@ WORKED EXAMPLE — Codeforces-style C++, finding "use unordered_set for O(n)":
     }
   WRONG: returning only the rewritten function with no main(). Reads no input, writes no output, every sandbox test fails.
 
+BREVITY (required): "summary" MUST be at most 500 characters — one tight paragraph.
+
 Respond with a SINGLE JSON object — no markdown fences, no commentary:
 {
   "improvedCode": string,                                                           // complete file; never a diff/partial; never wrapped in \`\`\` fences

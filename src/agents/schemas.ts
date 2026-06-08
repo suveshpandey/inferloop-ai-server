@@ -38,7 +38,7 @@ export const AnalyzerFinding = z.object({
 });
 export const AnalyzerOutput = z.object({
     findings: z.array(AnalyzerFinding).max(10),
-    summary: z.string().min(1).max(500),
+    summary: z.string().min(1).max(2000),
 });
 export type AnalyzerOutputT = z.infer<typeof AnalyzerOutput>;
 
@@ -51,7 +51,7 @@ export const CriticOutput = z.object({
         revised: AnalyzerFinding.optional(), // present when decision == 'modify
         reason: z.string().min(1).max(500),  // why this decision
     })).max(15),
-    summary: z.string().min(1).max(500),
+    summary: z.string().min(1).max(2000),
 });
 export type CriticOutputT = z.infer<typeof CriticOutput>;
 
@@ -64,7 +64,7 @@ export const ImproverChangeNote = z.object({
 export const ImproverOutput = z.object({
     improvedCode: z.string().min(1).max(40_000),
     changeNotes: z.array(ImproverChangeNote).max(15),
-    summary: z.string().min(1).max(500),
+    summary: z.string().min(1).max(2000),
 });
 export type ImproverOutputT = z.infer<typeof ImproverOutput>;
 
@@ -127,7 +127,7 @@ export type TestCaseSchemaT = z.infer<typeof TestCaseSchema>;
 
 export const TestGeneratorOutput = z.object({
     cases: z.array(TestCaseSchema).min(1).max(20),
-    summary: z.string().min(1).max(500),
+    summary: z.string().min(1).max(2000),
 });
 export type TestGeneratorOutputT = z.infer<typeof TestGeneratorOutput>;
 
