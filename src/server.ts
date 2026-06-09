@@ -23,6 +23,11 @@ const RESET = '\x1b[0m';
 async function start() {
     try {
         await prisma.$connect();
+        // Warm-up query: forces Neon (and similar serverless Postgres) to
+        // resume from suspend so the first user request doesn't eat the
+        // cold-start. Cheap, ~1 RTT — and surfaces auth/network issues at
+        // boot rather than under load.
+        await prisma.$queryRaw`SELECT 1`;
         console.log(`${GREEN}✓ Database connected${RESET}`);
     } catch (err) {
         console.error(`${RED}✗ Database connection failed${RESET}`, err);

@@ -4,6 +4,7 @@ import { requireAuth } from '../../auth/middleware.js';
 import { createRateLimiter } from '../../rate-limit/middleware.js';
 import { reviewLoop, type OnProgress } from '../../orchestrator/pipeline.js';
 import { saveCompletedRun } from '../../db/runs.js';
+import { classifyError } from '../../lib/classify-error.js';
 
 export const reviewStreamRouter = Router();
 
@@ -82,10 +83,8 @@ reviewStreamRouter.post('/review/stream', requireAuth, createRateLimiter('review
     } catch (err) {
         console.error('review stream failed:', err);
         if (!clientGone) {
-            send('error', {
-                type: 'error',
-                error: 'Review failed. One of the pipeline agents returned an invalid response or is unavailable.',
-            });
+            const { code, message } = classifyError(err);
+            send('error', { type: 'error', code, error: message });
             res.end();
         }
     }
