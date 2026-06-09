@@ -63,6 +63,11 @@ inferloop-server/
 │   │   └── test-generator.ts  # 5th agent — drafts ~6 cases probing samples / edges / overflow
 │   ├── orchestrator/
 │   │   └── pipeline.ts        # reviewLoop — test-driven 5-agent loop with best-iteration tracking
+│   ├── rate-limit/
+│   │   ├── store.ts           # Postgres bucket upsert + rolling 24h / fixed-minute windows
+│   │   ├── policies.ts        # Per-action limits; review limits skipped when LLM_PROVIDER=ollama
+│   │   ├── middleware.ts      # createRateLimiter(action) Express middleware
+│   │   └── responses.ts       # 429 JSON + Retry-After header
 │   ├── scripts/
 │   │   ├── build-cpp-snapshot.ts   # One-time: bake node24 + g++ snapshot; paste printed ID into .env
 │   │   ├── test-sandbox.ts         # Sandbox runner harness (success / timeout / runtime error)
@@ -154,7 +159,9 @@ Server boots at `http://localhost:3001`.
 | `pnpm tsx src/scripts/test-test-generator.ts` | Test-generator agent harness — Two Sum fixture; asserts valid shape + ~6 cases. |
 | `pnpm tsx src/scripts/test-execute-tests.ts` | 2.2 data-layer harness — seeds a throwaway run + cases, asserts pass-rate. |
 | `pnpm tsx src/scripts/test-pipeline-e2e.ts` | End-to-end harness — generate tests → run loop → persist → read back. Live LLM + sandbox. |
+| `pnpm tsx src/scripts/test-rate-limit.ts` | Rate-limit store harness — asserts minute/day caps and env defaults. |
 | `pnpm tsx src/scripts/cleanup-sandboxes.ts` | Bulk-delete every sandbox for the team. Reclaims storage + rate-limit headroom after heavy testing. |
+| `pnpm tsx src/scripts/cleanup-snapshots.ts` | List all snapshots and (with `--yes`) delete every one EXCEPT the active `VERCEL_CPP_SNAPSHOT_ID`. Use to clean up orphans left by repeated runs of `build-cpp-snapshot.ts`. Defaults to dry-run. |
 
 ---
 
@@ -264,6 +271,38 @@ All scoped to a run the caller owns — a test-case ID or run ID belonging to an
 | POST | `/api/runs/:runId/execute-tests` | ✅ | — | `{ results, testPassRate, ranAt }` |
 
 `execute-tests` runs every case for the run against its `finalCode` in **one sandbox per call** (the runner batches: one cold start, one compile for C++, N execs — vs. one sandbox per case). It compares stdout (trailing-whitespace-insensitive per line), persists `TestResult` rows + denormalizes `testPassRate` onto the `Run`. Idempotent — re-running replaces prior results. A run with no cases returns `{ results: [], testPassRate: null }`. Sandbox/infra failures return `502` and leave the agent-loop result untouched.
+
+---
+
+## Rate limiting
+
+Postgres-backed counters in the `RateLimitBucket` table protect paid LLM usage and Vercel sandbox quota. Limits are enforced **at request start** (before the pipeline or sandbox runs), so partial/failed requests still count.
+
+| Action | Endpoints | When active | Default limits |
+|---|---|---|---|
+| `review` | `POST /api/review`, `POST /api/review/stream` | **gemini / euri only** — skipped when `LLM_PROVIDER=ollama` | 2/min, **5/24h** per user |
+| `execute_tests` | `POST /api/runs/:runId/execute-tests` | Always (sandbox quota) | 5/min, 30/24h per user |
+| `login` | `POST /auth/login` | Always | **10/min per IP** |
+| `signup` | `POST /auth/signup` | Always | **5/min per IP** |
+
+Tune via env (see `.env.example`):
+
+```bash
+RATE_LIMIT_REVIEW_PER_MIN=2
+RATE_LIMIT_REVIEW_PER_DAY=5
+RATE_LIMIT_EXECUTE_PER_MIN=5
+RATE_LIMIT_EXECUTE_PER_DAY=30
+RATE_LIMIT_LOGIN_PER_MIN=10
+RATE_LIMIT_SIGNUP_PER_MIN=5
+```
+
+When a limit is exceeded the server returns **HTTP 429** with a clear message, a machine-readable `code` (`RATE_LIMIT_DAILY`, `RATE_LIMIT_MINUTE`, etc.), and a `Retry-After` header (seconds). Daily windows are **rolling 24h** from the first hit in the window.
+
+Optional maintenance — delete expired bucket rows:
+
+```sql
+DELETE FROM "RateLimitBucket" WHERE "expiresAt" < NOW();
+```
 
 ---
 

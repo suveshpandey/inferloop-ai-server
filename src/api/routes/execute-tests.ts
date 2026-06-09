@@ -7,6 +7,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../../auth/middleware.js';
+import { createRateLimiter } from '../../rate-limit/middleware.js';
 import { executeTestsForRunStream } from '../../services/run-tests.js';
 
 export const executeTestsRouter = Router();
@@ -15,7 +16,7 @@ const Body = z.object({
     caseIds: z.array(z.string()).optional(),
 }).optional();
 
-executeTestsRouter.post('/runs/:runId/execute-tests', requireAuth, async (req: Request, res: Response) => {
+executeTestsRouter.post('/runs/:runId/execute-tests', requireAuth, createRateLimiter('execute_tests'), async (req: Request, res: Response) => {
     const runId = req.params.runId;
     if (typeof runId !== 'string') return res.status(400).json({ error: 'Invalid run id' });
 

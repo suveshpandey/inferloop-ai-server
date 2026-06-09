@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../../auth/middleware.js';
+import { createRateLimiter } from '../../rate-limit/middleware.js';
 import { review } from '../../orchestrator/pipeline.js';
 
 export const reviewRouter = Router();
@@ -11,7 +12,7 @@ const ReviewRequest = z.object({
     problemStatement: z.string().min(10).max(10_000),
 });
 
-reviewRouter.post('/review', requireAuth, async (req: Request, res: Response) => {
+reviewRouter.post('/review', requireAuth, createRateLimiter('review'), async (req: Request, res: Response) => {
     const parsed = ReviewRequest.safeParse(req.body);
     if (!parsed.success) {
         return res.status(400).json({

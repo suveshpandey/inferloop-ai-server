@@ -13,7 +13,10 @@ export const env = {
     EURI_API_KEY:  process.env.EURI_API_KEY  || '',
     EURI_BASE_URL: process.env.EURI_BASE_URL || 'https://api.euron.one/api/v1/euri',
     EURI_MODEL:    process.env.EURI_MODEL    || 'gpt-5.3-instant',
-    CORS_ORIGIN: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    CORS_ORIGIN: (process.env.CORS_ORIGIN || 'http://localhost:3000')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
     VERCEL_TOKEN:          process.env.VERCEL_TOKEN          || '',
     VERCEL_TEAM_ID:        process.env.VERCEL_TEAM_ID        || '',
     VERCEL_PROJECT_ID:     process.env.VERCEL_PROJECT_ID     || '',
@@ -22,4 +25,11 @@ export const env = {
     SANDBOX_TIMEOUT_MS:    Number(process.env.SANDBOX_TIMEOUT_MS)    || 5_000,
     SANDBOX_MAX_OUTPUT_KB: Number(process.env.SANDBOX_MAX_OUTPUT_KB) || 64,
     MAX_GENERATED_CASES:   Number(process.env.MAX_GENERATED_CASES)   || 6,
+    // Rate limits — review limits apply only when LLM_PROVIDER is gemini/euri.
+    RATE_LIMIT_REVIEW_PER_MIN:   Number(process.env.RATE_LIMIT_REVIEW_PER_MIN)   || 2,
+    RATE_LIMIT_REVIEW_PER_DAY:   Number(process.env.RATE_LIMIT_REVIEW_PER_DAY)   || 5,
+    RATE_LIMIT_EXECUTE_PER_MIN:  Number(process.env.RATE_LIMIT_EXECUTE_PER_MIN)  || 5,
+    RATE_LIMIT_EXECUTE_PER_DAY:  Number(process.env.RATE_LIMIT_EXECUTE_PER_DAY)  || 30,
+    RATE_LIMIT_LOGIN_PER_MIN:    Number(process.env.RATE_LIMIT_LOGIN_PER_MIN)    || 10,
+    RATE_LIMIT_SIGNUP_PER_MIN:   Number(process.env.RATE_LIMIT_SIGNUP_PER_MIN)   || 5,
 }

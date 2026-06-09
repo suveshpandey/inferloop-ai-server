@@ -125,3 +125,13 @@ model RefreshToken {
 
   @@index([userId])
 }
+
+// Fixed-window / rolling-window rate-limit counters. id format:
+// "{userId}:{action}:min:{YYYY-MM-DDTHH:mm}" or "{userId}:{action}:day"
+model RateLimitBucket {
+  id        String   @id
+  count     Int      @default(0)
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}

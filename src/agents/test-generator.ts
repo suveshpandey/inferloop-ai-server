@@ -15,6 +15,8 @@ CRITICAL — every input must be SMALL and written out IN FULL:
 - Do NOT produce large constraint-boundary inputs (e.g. n = 10^5). You can't write them out and can't compute their correct output. Probe the SAME logic with a tiny input (test duplicates with 3 numbers; probe overflow with two 10^9 values). Detecting TLE is not your job.
 - Inputs must match the problem's stated input format EXACTLY (same lines, same token order, same separators). A malformed input is worse than no test.
 
+BREVITY (required): "summary" MUST be at most 500 characters — one tight paragraph.
+
 Respond with a SINGLE JSON object — no markdown fences, no commentary:
 {
   "cases": [

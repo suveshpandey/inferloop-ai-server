@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../../auth/middleware.js';
+import { createRateLimiter } from '../../rate-limit/middleware.js';
 import { reviewLoop, type OnProgress } from '../../orchestrator/pipeline.js';
 import { saveCompletedRun } from '../../db/runs.js';
 
@@ -18,7 +19,7 @@ const ReviewRequest = z.object({
     maxIterations:    z.number().int().min(1).max(5).optional().default(3),
 });
 
-reviewStreamRouter.post('/review/stream', requireAuth, async (req: Request, res: Response) => {
+reviewStreamRouter.post('/review/stream', requireAuth, createRateLimiter('review'), async (req: Request, res: Response) => {
     const parsed = ReviewRequest.safeParse(req.body);
     if (!parsed.success) {
         return res.status(400).json({
