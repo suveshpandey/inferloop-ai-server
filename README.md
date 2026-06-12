@@ -1,6 +1,6 @@
 # InferLoop Server
 
-Backend for **InferLoop AI** — a five-agent, test-driven code-review system for DSA / competitive-programming submissions. The loop generates test cases, runs the code against them in a Vercel sandbox, feeds failing cases back to the Improver, and stops when **measured pass-rate** hits 100% (or stalls). Built with Node.js, Express 5, TypeScript, Prisma, and PostgreSQL. Auth uses Argon2 + JOSE JWTs + DB-backed refresh tokens.
+Backend for **InferLoop AI** — a five-agent, test-driven *review + rewrite* loop for DSA / competitive-programming submissions. The loop generates test cases once, then on each iteration runs Analyzer → Critic → Improver against the **rewritten** code from the previous round, executes the rewrite against the same cases in a Vercel sandbox, feeds failing cases back to the next Improver, and stops when **measured pass-rate** hits 100% (or stalls). A single Evaluator runs once at the end on the highest-scoring iteration. Built with Node.js, Express 5, TypeScript, Prisma, and PostgreSQL. Auth uses Argon2 + JOSE JWTs + DB-backed refresh tokens.
 
 ---
 
@@ -64,10 +64,12 @@ inferloop-server/
 │   ├── orchestrator/
 │   │   └── pipeline.ts        # reviewLoop — test-driven 5-agent loop with best-iteration tracking
 │   ├── rate-limit/
-│   │   ├── store.ts           # Postgres bucket upsert + rolling 24h / fixed-minute windows
+│   │   ├── store.ts           # Postgres bucket upsert + rolling 24h / fixed-minute windows (txn maxWait: 10s)
 │   │   ├── policies.ts        # Per-action limits; review limits skipped when LLM_PROVIDER=ollama
 │   │   ├── middleware.ts      # createRateLimiter(action) Express middleware
 │   │   └── responses.ts       # 429 JSON + Retry-After header
+│   ├── lib/
+│   │   └── classify-error.ts  # classifyError(err) → { code: 'transient' | 'persistent', message } for SSE error frames
 │   ├── scripts/
 │   │   ├── build-cpp-snapshot.ts   # One-time: bake node24 + g++ snapshot; paste printed ID into .env
 │   │   ├── test-sandbox.ts         # Sandbox runner harness (success / timeout / runtime error)
@@ -306,25 +308,92 @@ DELETE FROM "RateLimitBucket" WHERE "expiresAt" < NOW();
 
 ---
 
-## How the pipeline works
+## Loop architecture
+
+The orchestrator (`src/orchestrator/pipeline.ts`) is a **test-driven** loop. Test cases are generated **once** up front and reused across every iteration; the Improver carries forward the previous iteration's failing cases as feedback; the Evaluator runs **once** at the end on the best-scoring iteration's code (not per-iteration).
 
 ```
-1. Generate ~6 test cases once (test-generator agent), capped at MAX_GENERATED_CASES.
-2. For each iteration (up to maxIterations):
-     analyze → critique → improve(previous failures) → runTestsInMemory
-   Termination — first match wins:
-     - pass-rate == 100              → all-pass         (stop)
-     - pass-rate ≤ previous          → stalled          (stop, surface earlier code)
-     - tests unavailable + 0 findings → no-findings     (stop)
-     - iteration == max               → max-iterations  (stop)
-3. Final Evaluator runs ONCE at the end with the measured pass-rate + failing cases.
-4. Best-iteration code is surfaced as finalCode (a later regression never wins).
-5. Run + iterations + cases + best-iteration results are persisted atomically.
+       ┌───────────────────────────────────────────────────────┐
+       │   TEST GENERATOR (once, before the loop)              │
+       │   ~6 cases probing samples / edges / overflow         │
+       └─────────────────────────┬─────────────────────────────┘
+                                 │
+                                 ▼
+   ╔══════════════════════════ LOOP ═════════════════════════════╗
+   ║                                                             ║
+   ║   ┌────────────┐   ┌────────┐   ┌──────────┐   ┌─────────┐  ║
+   ║   │ ANALYZER   │ → │ CRITIC │ → │ IMPROVER │ → │ SANDBOX │  ║
+   ║   │ findings   │   │ keep / │   │ rewrites │   │ runs N  │  ║
+   ║   │ vs problem │   │ drop / │   │ code +   │   │ cases,  │  ║
+   ║   │ constraints│   │ modify │   │ prev     │   │ records │  ║
+   ║   │            │   │        │   │ failures │   │ passRate│  ║
+   ║   └────────────┘   └────────┘   └─────┬────┘   └────┬────┘  ║
+   ║                                       │             │       ║
+   ║                                       │             ▼       ║
+   ║                                       │   failing cases ────╫──┐
+   ║                                       │   become next       ║  │
+   ║                                       │   iteration's       ║  │ feedback into
+   ║                                       └── currentCode       ║  │ Improver next round
+   ║                                                             ║  │
+   ║   terminate when:                                           ║  │
+   ║     - passRate == 100              → all-pass               ║◄─┘
+   ║     - passRate ≤ previous          → stalled                ║
+   ║     - tests unavailable + 0 finds  → no-findings            ║
+   ║     - iteration == maxIterations   → max-iterations         ║
+   ║                                                             ║
+   ╚════════════════════════════╤════════════════════════════════╝
+                                │
+                                ▼
+       ┌───────────────────────────────────────────────────────┐
+       │   EVALUATOR (once, end-of-loop, on BEST iteration)    │
+       │   verdict + 4 scores + measured passRate              │
+       └─────────────────────────┬─────────────────────────────┘
+                                 │
+                                 ▼
+       ┌───────────────────────────────────────────────────────┐
+       │   Persist Run + Iterations + TestCases + best-        │
+       │   iteration TestResults in one Prisma transaction     │
+       └───────────────────────────────────────────────────────┘
 ```
 
-**Resilience.** The shared `chatJSONValidated` wrapper retries each agent up to 3 times on JSON-parse or Zod-shape failures (small-model drift is common; temperature > 0 means a re-roll usually succeeds). If the sandbox itself is unavailable (rate limit / transient error), the loop continues test-free and still produces a review.
+### What each iteration inherits from the previous one
 
-**Structure preservation.** The Improver prompt forbids removing `main()`, the I/O wrapper, or any function it didn't need to delete — findings target inner algorithms, not the program's surface.
+| Input to iteration *N+1* | Source | Notes |
+|---|---|---|
+| `currentCode` | Iteration *N*'s `improvedCode` | Analyzer + Critic reason against the rewritten code, not the original. |
+| `prevFailures` | Iteration *N*'s failing TestResults | Only the **Improver** sees this — concrete signal for "fix exactly these cases this time". Analyzer/Critic don't get it. |
+| Test cases | Generated once, before the loop | **Same** 6 cases run against every iteration's `improvedCode`. |
+| Best-iteration tracker | Cumulative | Highest pass-rate seen so far drives `finalCode`. A later regression never wins. |
+
+### Termination — first match wins
+
+| Reason | Condition | What gets returned |
+|---|---|---|
+| `all-pass` | pass-rate hit 100% | Best iteration's code (which is this one) |
+| `stalled` | This iteration's pass-rate ≤ previous | Best earlier iteration's code |
+| `no-findings` | Tests unavailable AND analyzer returned 0 findings | The iteration's `inputCode` (nothing to improve) |
+| `max-iterations` | Hit the user-chosen cap (1–5) | Best iteration's code |
+
+### Resilience
+
+- **Per-agent retries.** The shared `chatJSONValidated` wrapper retries each agent up to 3 times on JSON-parse or Zod-shape failures. Small-model drift is common; temperature > 0 means a re-roll usually succeeds.
+- **Sandbox graceful degradation.** If Vercel Sandbox is unavailable mid-loop (quota / 5xx / network), the loop continues **test-free** and still returns a review — `testPassRate` is `null`, termination falls back to `no-findings` / `max-iterations`.
+- **Test-generation best-effort.** If the test-generator agent fails or returns 0 cases, the loop runs test-free and the Evaluator skips the pass-rate-grounded scoring path.
+- **Structure preservation.** The Improver prompt forbids removing `main()`, the I/O wrapper, or any function it didn't need to delete — findings target inner algorithms, not the program's surface.
+
+### Error classification (for the UI)
+
+Errors thrown anywhere in the pipeline are bucketed by `src/lib/classify-error.ts` into:
+
+- **`transient`** — retrying in a few seconds is likely to succeed (Neon DB cold-start / suspend resume, Vercel Sandbox 5xx or 429, fetch network blips). Recognised codes: Prisma `P2028 / P1001 / P1002 / P1008 / P1017` and "Unable to start a transaction"; Node `ECONNRESET / ETIMEDOUT / ENOTFOUND / EAI_AGAIN / UND_ERR_*`; sandbox 5xx + 429.
+- **`persistent`** — something is actually broken (bad LLM response, invalid input, sustained outage). The user-facing message asks them to retry once, then report.
+
+The `code` is included on the SSE `error` frame as `{ type: 'error', code, error: <message> }`. The client surfaces a friendlier **amber "waking up — Retry"** affordance for `transient`, falling back to the generic rose **"stage failed"** copy for `persistent`.
+
+### DB warm-up & transaction tuning
+
+- On boot, `server.ts` runs `prisma.$queryRaw\`SELECT 1\`` after `$connect()` — forces Neon (and similar serverless Postgres providers) to resume from suspend before the first user request lands. Cheap, ~1 RTT.
+- Rate-limit transactions in `src/rate-limit/store.ts` use `{ maxWait: 10_000, timeout: 10_000 }` (vs. the Prisma defaults of `2s` / `5s`). Survives a 5–8 second DB wake-up without throwing the user-visible "Unable to start a transaction" error.
 
 ### Streaming wire format
 
@@ -372,7 +441,7 @@ event: done
 data: {"type":"done","result":{...},"runId":"clxyz..."}
 ```
 
-`done` carries the persisted `runId` (or `null` if the save failed) so the client can deep-link to `/history/[id]`. On error the server emits `event: error` with a message, then closes the stream.
+`done` carries the persisted `runId` (or `null` if the save failed) so the client can deep-link to `/history/[id]`. On error the server emits `event: error` with `{ type: 'error', code: 'transient' | 'persistent', error: <human-readable message> }`, then closes the stream. The `code` lets the UI pick between a friendly "service waking up — retry" affordance vs. the generic failure copy.
 
 Test with curl (use `-N` to disable buffering):
 
@@ -382,6 +451,22 @@ curl -N -X POST http://localhost:3001/api/review/stream \
   -H "Content-Type: application/json" \
   -d '{"code":"...","language":"python","problemStatement":"...","maxIterations":3}'
 ```
+
+---
+
+## Deployment & CORS
+
+The server is a standalone Node + Express process — `pnpm build && pnpm start` from a Vercel build step, Render, Railway, Fly, or any Node host.
+
+**Required env vars in production:** `DATABASE_URL`, `JWT_ACCESS_SECRET`, `CORS_ORIGIN`, `LLM_PROVIDER` (+ the provider's key + model), `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID`, `VERCEL_CPP_SNAPSHOT_ID` (optional, only for C++).
+
+**CORS — multi-origin.** `CORS_ORIGIN` is a **comma-separated list** of allowed frontend origins. The `cors` middleware accepts a string array natively, so you can include localhost for dev + every deployed frontend origin:
+
+```bash
+CORS_ORIGIN=http://localhost:3000,https://inferloopai.vercel.app
+```
+
+In production you typically drop localhost: `CORS_ORIGIN=https://inferloopai.vercel.app`.
 
 ---
 
