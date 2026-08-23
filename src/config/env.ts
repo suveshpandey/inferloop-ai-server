@@ -32,4 +32,14 @@ export const env = {
     RATE_LIMIT_EXECUTE_PER_DAY:  Number(process.env.RATE_LIMIT_EXECUTE_PER_DAY)  || 30,
     RATE_LIMIT_LOGIN_PER_MIN:    Number(process.env.RATE_LIMIT_LOGIN_PER_MIN)    || 10,
     RATE_LIMIT_SIGNUP_PER_MIN:   Number(process.env.RATE_LIMIT_SIGNUP_PER_MIN)   || 5,
+
+    // Email / SMTP
+    EMAIL_ENABLED: process.env.EMAIL_ENABLED === 'true',
+    SMTP_HOST:     process.env.SMTP_HOST || '',
+    SMTP_PORT:     Number(process.env.SMTP_PORT) || 587,
+    SMTP_USER:     process.env.SMTP_USER || '',
+    SMTP_PASS:     process.env.SMTP_PASS || '',
+    SMTP_FROM:     process.env.SMTP_FROM || '',
+    BRAND_NAME:    process.env.BRAND_NAME || 'InferLoop AI',
+    APP_URL:       process.env.APP_URL || 'http://localhost:3000',
 }

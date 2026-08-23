@@ -5,6 +5,7 @@ import { signAccessToken } from "../../auth/jwt.js";
 import { issueRefreshToken, findValidRefreshToken, revokeRefreshToken } from "../../auth/refresh.js";
 import { requireAuth } from "../../auth/middleware.js";
 import { createIpRateLimiter } from "../../rate-limit/middleware.js";
+import { sendWelcomeEmail } from "../../email/index.js";
 
 export const authRouter = Router()
 
@@ -39,6 +40,9 @@ authRouter.post('/signup', createIpRateLimiter('signup'), async (req: Request, r
     if (newUser) {
         const accessToken = await signAccessToken({sub: newUser.id, email: newUser.email})
         const refreshToken = await issueRefreshToken(newUser.id);
+
+        // Fire-and-forget: welcome email should never block signup
+        sendWelcomeEmail(newUser.email, newUser.username ?? undefined);
 
         return res.status(201).json(
             {email: newUser.email, accessToken: accessToken, refreshToken: refreshToken}
